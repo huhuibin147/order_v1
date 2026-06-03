@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>后台汇总</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    .admin-dish {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin: 12px 0;
+      box-shadow: var(--shadow);
+    }
+    .admin-dish-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--primary);
+      margin-bottom: 8px;
+    }
+    .admin-dish-name {
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .admin-dish-stat {
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .admin-spec {
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .admin-spec:last-child {
+      border-bottom: none;
+    }
+    .admin-spec-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+    .admin-spec-text {
+      font-size: 13px;
+      color: var(--text);
+    }
+    .admin-spec-text .muted {
+      color: var(--text-light);
+    }
+    .admin-spec-cnt {
+      background: #fef0eb;
+      color: var(--primary);
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .admin-spec-owners {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    .admin-spec-owners .pill {
+      display: inline-block;
+      background: #ecf0f1;
+      color: var(--text);
+      padding: 1px 8px;
+      border-radius: 4px;
+      margin: 2px 4px 0 0;
+    }
+    .admin-spec-owners .pill .no {
+      color: var(--primary);
+      font-weight: 600;
+      margin-right: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container container-wide">
+    <div class="appbar">
+      <div>
+        <h1 id="sessionTitle">后台汇总</h1>
+        <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
+      </div>
+      <div class="row">
+        <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">按人汇总</a>
+        <a class="btn btn-ghost btn-sm" href="/menu/{{ session_id }}">点单页</a>
+      </div>
+    </div>
+
+    <div id="content">加载中...</div>
+  </div>
+
+  <script>
+    const SESSION_ID = "{{ session_id }}";
+    let MENU = null;
+
+    async function init() {
+      const [menuRes, sessionRes] = await Promise.all([
+        fetch('/api/menu'),
+        fetch('/api/session/' + SESSION_ID)
+      ]);
+      if (!menuRes.ok || !sessionRes.ok) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty"><span class="emoji">😢</span>会话不存在或已失效</div>';
+        return;
+      }
+      MENU = await menuRes.json();
+      const session = await sessionRes.json();
+      document.getElementById('sessionTitle').textContent = session.title + ' · 后台';
+      render(session);
+    }
+
+    function dishName(id) { return (MENU.dishes.find(d => d.id === id) || {}).name || '未知菜品'; }
+    function sauceName(id) { return (MENU.sauces.find(s => s.id === id) || {}).name; }
+    function addonName(id) { return (MENU.addons.find(a => a.id === id) || {}).name; }
+
+    // 规格 key：酱料id排序 + 附加品id排序 + 备注
+    function specKey(o) {
+      const sauces = [...(o.sauce_ids || [])].sort();
+      const addons = [...(o.addon_ids || [])].sort();
+      return sauces.join(',') + '|' + addons.join(',') + '|' + (o.note || '');
+    }
+    function specLabel(o) {
+      const parts = [];
+      if (o.sauce_ids && o.sauce_ids.length) {
+        parts.push(o.sauce_ids.map(sauceName).join('+'));
+      } else {
+        parts.push('酱料：默认');
+      }
+      if (o.addon_ids && o.addon_ids.length) {
+        parts.push('加' + o.addon_ids.map(addonName).join('+'));
+      }
+      if (o.note) parts.push('备注：' + o.note);
+      return parts.join(' · ');
+    }
+
+    function render(session) {
+      if (!session.orders.length) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty"><span class="emoji">📋</span>还没人点单</div>';
+        return;
+      }
+
+      // 一级：按 dish 分组
+      const byDish = {};
+      session.orders.forEach(o => {
+        if (!byDish[o.dish_id]) byDish[o.dish_id] = [];
+        byDish[o.dish_id].push(o);
+      });
+
+      // 保持原始顺序（按首次出现）
+      const orderedDishIds = [];
+      session.orders.forEach(o => {
+        if (!orderedDishIds.includes(o.dish_id)) orderedDishIds.push(o.dish_id);
+      });
+
+      const grandTotal = session.orders.reduce((s, o) => s + o.unit_price, 0);
+
+      const html = orderedDishIds.map(dishId => {
+        const orders = byDish[dishId];
+        const dishTotal = orders.reduce((s, o) => s + o.unit_price, 0);
+        // 二级：按 spec 分组
+        const bySpec = {};
+        orders.forEach(o => {
+          const k = specKey(o);
+          if (!bySpec[k]) bySpec[k] = { sample: o, owners: [] };
+          bySpec[k].owners.push(o);
+        });
+        const specsHtml = Object.values(bySpec).map(({ sample, owners }) => {
+          const ownersHtml = owners.map(o =>
+            `<span class="pill"><span class="no">${o.user_no}号</span>${o.user_name}</span>`
+          ).join('');
+          return `
+            <div class="admin-spec">
+              <div class="admin-spec-line">
+                <div class="admin-spec-text">${specLabel(sample)}</div>
+                <div class="admin-spec-cnt">× ${owners.length}</div>
+              </div>
+              <div class="admin-spec-owners">${ownersHtml}</div>
+            </div>
+          `;
+        }).join('');
+        return `
+          <div class="admin-dish">
+            <div class="admin-dish-head">
+              <div class="admin-dish-name">${dishName(dishId)}</div>
+              <div class="admin-dish-stat">× ${orders.length} 份 · ¥${dishTotal.toFixed(2)}</div>
+            </div>
+            ${specsHtml}
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('content').innerHTML = html + `
+        <div class="grand-total">
+          <div class="label">合计 ${session.orders.length} 份</div>
+          <div class="num">¥${grandTotal.toFixed(2)}</div>
+        </div>
+      `;
+    }
+
+    init();
+  </script>
+</body>
+</html>

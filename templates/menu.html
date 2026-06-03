@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>点单</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <div class="appbar">
+      <div>
+        <h1 id="sessionTitle">点单</h1>
+        <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
+      </div>
+      <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">查看汇总</a>
+    </div>
+
+    <div class="card">
+      <label>我的昵称</label>
+      <input type="text" id="userName" placeholder="例如：小王" maxlength="10">
+      <div class="muted" style="margin-top:6px;">用于在汇总页区分谁点了什么</div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+    <div id="dishList"></div>
+
+    <div class="empty" id="empty" style="display:none;">
+      <span class="emoji">🍽️</span>
+      这个分类暂时没有菜品
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <div class="summary">
+      <strong id="myCount">0</strong>
+      <span>我已点的份数</span>
+    </div>
+    <a class="btn" href="/summary/{{ session_id }}">查看汇总</a>
+  </div>
+
+  <!-- 点单弹层 -->
+  <div class="modal-mask" id="modalMask">
+    <div class="modal">
+      <h3 id="modalDishName"></h3>
+      <div class="modal-sub" id="modalDishDesc"></div>
+
+      <div class="option-group" id="sauceGroup" style="display:none;">
+        <div class="option-group-title">选酱料（可多选 / 不选）</div>
+        <div class="options" id="sauceOptions"></div>
+      </div>
+
+      <div class="option-group" id="addonGroup" style="display:none;">
+        <div class="option-group-title">加附加品（可多选）</div>
+        <div class="options" id="addonOptions"></div>
+      </div>
+
+      <div class="option-group">
+        <div class="option-group-title">备注（可选）</div>
+        <textarea id="note" rows="2" placeholder="例如：少辣、不要香菜" maxlength="50"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button class="btn btn-ghost" id="btnCancel" style="flex:1;">取消</button>
+        <button class="btn" id="btnConfirm" style="flex:2;">加入我的清单</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SESSION_ID = "{{ session_id }}";
+    const STORAGE_NAME = 'order_v1_name_' + SESSION_ID;
+    let MENU = null;
+    let SESSION = null;
+    let activeCategory = null;
+    let currentDish = null;
+    let selectedSauces = new Set();
+    let selectedAddons = new Set();
+
+    // ---------- 初始化 ----------
+    async function init() {
+      const [menuRes, sessionRes] = await Promise.all([
+        fetch('/api/menu'),
+        fetch('/api/session/' + SESSION_ID)
+      ]);
+      if (!menuRes.ok || !sessionRes.ok) {
+        alert('加载失败，请返回首页重试');
+        return;
+      }
+      MENU = await menuRes.json();
+      SESSION = await sessionRes.json();
+
+      document.getElementById('sessionTitle').textContent = SESSION.title;
+      document.title = SESSION.title;
+
+      // 恢复昵称
+      const savedName = localStorage.getItem(STORAGE_NAME) || '';
+      document.getElementById('userName').value = savedName;
+      document.getElementById('userName').addEventListener('change', e => {
+        localStorage.setItem(STORAGE_NAME, e.target.value.trim());
+      });
+
+      renderTabs();
+      renderDishes();
+      updateMyCount();
+    }
+
+    // ---------- 渲染 ----------
+    function renderTabs() {
+      const categories = [...new Set(MENU.dishes.map(d => d.category))];
+      const tabs = document.getElementById('tabs');
+      tabs.innerHTML = categories.map(c =>
+        `<div class="tab${c === activeCategory ? ' active' : ''}" data-cat="${c}">${c}</div>`
+      ).join('');
+      tabs.querySelectorAll('.tab').forEach(t => {
+        t.addEventListener('click', () => {
+          activeCategory = t.dataset.cat;
+          renderTabs();
+          renderDishes();
+        });
+      });
+      if (!activeCategory && categories.length) {
+        activeCategory = categories[0];
+        renderTabs();
+      }
+    }
+
+    function renderDishes() {
+      const list = MENU.dishes.filter(d => d.category === activeCategory);
+      const empty = document.getElementById('empty');
+      if (!list.length) {
+        document.getElementById('dishList').innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+      document.getElementById('dishList').innerHTML = list.map(d => `
+        <div class="dish">
+          <div class="dish-info">
+            <div class="dish-name">${d.name}</div>
+            <div class="dish-desc">${d.description || ''}</div>
+            <div class="dish-price">¥${d.price}</div>
+          </div>
+          <button class="btn btn-sm" data-dish="${d.id}">加入</button>
+        </div>
+      `).join('');
+      document.getElementById('dishList').querySelectorAll('[data-dish]').forEach(btn => {
+        btn.addEventListener('click', () => openModal(btn.dataset.dish));
+      });
+    }
+
+    function updateMyCount() {
+      const myName = (document.getElementById('userName').value || '').trim();
+      const cnt = SESSION.orders.filter(o => o.user_name === myName).length;
+      document.getElementById('myCount').textContent = cnt;
+    }
+
+    // ---------- 弹层 ----------
+    function openModal(dishId) {
+      currentDish = MENU.dishes.find(d => d.id === dishId);
+      if (!currentDish) return;
+      document.getElementById('modalDishName').textContent = currentDish.name;
+      document.getElementById('modalDishDesc').textContent = `${currentDish.description || ''} · ¥${currentDish.price}`;
+      document.getElementById('note').value = '';
+      selectedSauces.clear();
+      selectedAddons.clear();
+
+      // 酱料
+      const sauces = currentDish.sauce_ids.map(id => MENU.sauces.find(s => s.id === id)).filter(Boolean);
+      const sauceGroup = document.getElementById('sauceGroup');
+      if (sauces.length) {
+        sauceGroup.style.display = 'block';
+        document.getElementById('sauceOptions').innerHTML = sauces.map(s =>
+          `<div class="option" data-sauce="${s.id}">${s.name}${s.price ? `<span class="extra">+¥${s.price}</span>` : ''}</div>`
+        ).join('');
+        document.getElementById('sauceOptions').querySelectorAll('[data-sauce]').forEach(el => {
+          el.addEventListener('click', () => {
+            const id = el.dataset.sauce;
+            if (selectedSauces.has(id)) {
+              selectedSauces.delete(id);
+              el.classList.remove('selected');
+            } else {
+              selectedSauces.add(id);
+              el.classList.add('selected');
+            }
+          });
+        });
+      } else {
+        sauceGroup.style.display = 'none';
+      }
+
+      // 附加品
+      const addons = currentDish.addon_ids.map(id => MENU.addons.find(a => a.id === id)).filter(Boolean);
+      const addonGroup = document.getElementById('addonGroup');
+      if (addons.length) {
+        addonGroup.style.display = 'block';
+        document.getElementById('addonOptions').innerHTML = addons.map(a =>
+          `<div class="option" data-addon="${a.id}">${a.name}<span class="extra">+¥${a.price}</span></div>`
+        ).join('');
+        document.getElementById('addonOptions').querySelectorAll('[data-addon]').forEach(el => {
+          el.addEventListener('click', () => {
+            const id = el.dataset.addon;
+            if (selectedAddons.has(id)) {
+              selectedAddons.delete(id);
+              el.classList.remove('selected');
+            } else {
+              selectedAddons.add(id);
+              el.classList.add('selected');
+            }
+          });
+        });
+      } else {
+        addonGroup.style.display = 'none';
+      }
+
+      document.getElementById('modalMask').classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('modalMask').classList.remove('show');
+      currentDish = null;
+    }
+
+    document.getElementById('btnCancel').addEventListener('click', closeModal);
+    document.getElementById('modalMask').addEventListener('click', e => {
+      if (e.target.id === 'modalMask') closeModal();
+    });
+
+    document.getElementById('btnConfirm').addEventListener('click', async () => {
+      const userName = document.getElementById('userName').value.trim();
+      if (!userName) {
+        alert('请先填写昵称');
+        document.getElementById('userName').focus();
+        return;
+      }
+      const note = document.getElementById('note').value.trim();
+      const r = await fetch('/api/session/' + SESSION_ID + '/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_name: userName,
+          dish_id: currentDish.id,
+          sauce_ids: [...selectedSauces],
+          addon_ids: [...selectedAddons],
+          note
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || '下单失败'); return; }
+      SESSION.orders.push(data);
+      localStorage.setItem(STORAGE_NAME, userName);
+      closeModal();
+      updateMyCount();
+    });
+
+    // 昵称变化时刷新计数
+    document.getElementById('userName').addEventListener('input', updateMyCount);
+
+    init();
+  </script>
+</body>
+</html>

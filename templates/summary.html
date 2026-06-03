@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>汇总</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="container container-wide">
+    <div class="appbar">
+      <div>
+        <h1 id="sessionTitle">汇总</h1>
+        <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
+      </div>
+      <div class="row">
+        <a class="btn btn-ghost btn-sm" href="/admin/{{ session_id }}">后台汇总</a>
+        <a class="btn btn-ghost btn-sm" href="/menu/{{ session_id }}">继续点单</a>
+      </div>
+    </div>
+
+    <div id="content">加载中...</div>
+  </div>
+
+  <script>
+    const SESSION_ID = "{{ session_id }}";
+    let MENU = null;
+
+    async function init() {
+      const [menuRes, sessionRes] = await Promise.all([
+        fetch('/api/menu'),
+        fetch('/api/session/' + SESSION_ID)
+      ]);
+      if (!menuRes.ok || !sessionRes.ok) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty"><span class="emoji">😢</span>会话不存在或已失效</div>';
+        return;
+      }
+      MENU = await menuRes.json();
+      const session = await sessionRes.json();
+      document.getElementById('sessionTitle').textContent = session.title;
+      render(session);
+    }
+
+    function dishName(id) { return (MENU.dishes.find(d => d.id === id) || {}).name || '未知菜品'; }
+    function sauceName(id) { return (MENU.sauces.find(s => s.id === id) || {}).name; }
+    function addonName(id) { return (MENU.addons.find(a => a.id === id) || {}).name; }
+
+    function render(session) {
+      if (!session.orders.length) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty"><span class="emoji">🛒</span>还没人点单</div>';
+        return;
+      }
+
+      // 按 user_name 分组
+      const groups = {};
+      session.orders.forEach(o => {
+        if (!groups[o.user_name]) groups[o.user_name] = [];
+        groups[o.user_name].push(o);
+      });
+
+      const grandTotal = session.orders.reduce((s, o) => s + o.unit_price, 0);
+
+      const html = Object.entries(groups).map(([name, items]) => {
+        const groupTotal = items.reduce((s, o) => s + o.unit_price, 0);
+        const userNo = items[0].user_no;  // 同人序号相同，取第一条
+        const itemsHtml = items.map(o => {
+          const detail = [];
+          if (o.sauce_ids && o.sauce_ids.length) {
+            detail.push('酱料：' + o.sauce_ids.map(sauceName).join('、'));
+          }
+          if (o.addon_ids && o.addon_ids.length) {
+            detail.push('加：' + o.addon_ids.map(addonName).join('、'));
+          }
+          if (o.note) detail.push('备注：' + o.note);
+          return `
+            <div class="summary-item" data-oid="${o.id}">
+              <div class="summary-item-main">
+                <div class="summary-item-name">${dishName(o.dish_id)}</div>
+                <div class="summary-item-detail">${detail.join(' · ') || '—'}</div>
+              </div>
+              <div class="summary-item-price">¥${o.unit_price}</div>
+              <span class="delete" data-del="${o.id}">删除</span>
+            </div>
+          `;
+        }).join('');
+        return `
+          <div class="card summary-group">
+            <div class="summary-group-header">
+              <h4><span class="user-no">${userNo}号</span>${name}</h4>
+              <div class="total">¥${groupTotal.toFixed(2)} · ${items.length} 份</div>
+            </div>
+            ${itemsHtml}
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('content').innerHTML = html + `
+        <div class="grand-total">
+          <div class="label">合计 ${session.orders.length} 份</div>
+          <div class="num">¥${grandTotal.toFixed(2)}</div>
+        </div>
+      `;
+
+      // 删除事件
+      document.querySelectorAll('[data-del]').forEach(el => {
+        el.addEventListener('click', async () => {
+          if (!confirm('确定删除这一条？')) return;
+          const r = await fetch('/api/order/' + el.dataset.del, { method: 'DELETE' });
+          if (r.ok) init();
+        });
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>点单系统</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <div class="appbar">
+      <h1>点单系统</h1>
+    </div>
+
+    <div class="card">
+      <h3>开一桌新的</h3>
+      <p class="muted">创建一个新点单会话，把 6 位会话码分享给同桌的人。</p>
+      <label>会话标题（可选）</label>
+      <input type="text" id="title" placeholder="例如：周五聚餐" maxlength="20">
+      <div style="height:12px"></div>
+      <button class="btn" id="btnCreate">创建新会话</button>
+    </div>
+
+    <div class="card">
+      <h3>加入已有会话</h3>
+      <p class="muted">输入朋友分享给你的 6 位会话码。</p>
+      <label>会话码</label>
+      <input type="text" id="code" placeholder="例如：AB23CD" maxlength="6" style="text-transform:uppercase;letter-spacing:2px;">
+      <div style="height:12px"></div>
+      <button class="btn btn-secondary" id="btnJoin">加入会话</button>
+    </div>
+
+    <p class="muted" style="text-align:center;padding:24px 0;">
+      数据保存在内存中，服务器重启后清空。
+    </p>
+  </div>
+
+  <script>
+    document.getElementById('btnCreate').addEventListener('click', async () => {
+      const title = document.getElementById('title').value.trim();
+      const r = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title })
+      });
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || '创建失败'); return; }
+      location.href = '/menu/' + data.id;
+    });
+
+    document.getElementById('btnJoin').addEventListener('click', async () => {
+      const code = document.getElementById('code').value.trim().toUpperCase();
+      if (code.length !== 6) { alert('请输入 6 位会话码'); return; }
+      const r = await fetch('/api/session/' + code);
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || '会话不存在'); return; }
+      location.href = '/menu/' + code;
+    });
+
+    // 输入框自动转大写
+    document.getElementById('code').addEventListener('input', e => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+  </script>
+</body>
+</html>
