@@ -13,7 +13,10 @@
         <h1 id="sessionTitle">点单</h1>
         <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
       </div>
-      <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">查看汇总</a>
+      <div class="row">
+        <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">查看汇总</a>
+        <a class="btn btn-ghost btn-sm" href="/">首页</a>
+      </div>
     </div>
 
     <div class="card">

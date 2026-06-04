@@ -8,10 +8,11 @@ import secrets
 import string
 import uuid
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 import openpyxl
-from flask import Flask, abort, jsonify, render_template, request
+from flask import Flask, abort, jsonify, render_template, request, send_file
 
 BASE_DIR = Path(__file__).parent
 MENU_PATH = BASE_DIR / "data" / "menu.json"
@@ -193,6 +194,211 @@ def api_list_sessions():
     return jsonify(result)
 
 
+@app.get("/api/export")
+def api_export():
+    if not SESSIONS:
+        return jsonify({"error": "没有可导出的会话"}), 400
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    sauce_map = {s["id"]: s["name"] for s in MENU["sauces"]}
+
+    for sid, session in SESSIONS.items():
+        orders = [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS]
+        if not orders:
+            continue
+
+        # 聚合：与 admin 页面 renderItems 逻辑一致
+        map = {}
+
+        def bump(key, name, tag, user_no):
+            if key not in map:
+                map[key] = {"name": name, "tag": tag, "count": 0, "user_nos": set()}
+            map[key]["count"] += 1
+            map[key]["user_nos"].add(user_no)
+
+        for o in orders:
+            d = next((x for x in MENU["dishes"] if x["id"] == o["dish_id"]), {})
+            display = d.get("name", "?") + (f"（{o['base']}）" if o.get("base") else "")
+            bump("dish:" + o["dish_id"] + ":" + (o.get("base") or ""), display, "主食", o["user_no"])
+            for sid_s in o.get("sauce_ids", []):
+                bump("sauce:" + sid_s, sauce_map.get(sid_s, "?"), "酱料", o["user_no"])
+
+        dish_rows = sorted(
+            [r for r in map.values() if r["tag"] == "主食"],
+            key=lambda r: (-r["count"], r["name"]),
+        )
+        sauce_rows = sorted(
+            [r for r in map.values() if r["tag"] == "酱料"],
+            key=lambda r: (-r["count"], r["name"]),
+        )
+
+        # Excel sheet 名最多 31 字，不能含 / \ [ ] : *
+        sheet_name = re.sub(r'[/\\[\]:*?]', '-', session["title"])[:31]
+        ws = wb.create_sheet(title=sheet_name)
+        ws.append(["项目", "数量", "序号"])
+        header_fill = openpyxl.styles.PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
+        header_border = openpyxl.styles.Border(
+            left=openpyxl.styles.Side(style="thin", color="999999"),
+            right=openpyxl.styles.Side(style="thin", color="999999"),
+            top=openpyxl.styles.Side(style="thin", color="999999"),
+            bottom=openpyxl.styles.Side(style="thin", color="999999"),
+        )
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = openpyxl.styles.Font(bold=True)
+            cell.border = header_border
+        for r in dish_rows:
+            nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
+            ws.append([r["name"], r["count"], nos])
+        for r in sauce_rows:
+            nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
+            ws.append([r["name"], r["count"], nos])
+
+        # 行高
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+            ws.row_dimensions[row[0].row].height = 22
+
+        # 列宽自适应
+        for col_cells in ws.columns:
+            max_len = 0
+            for cell in col_cells:
+                val = str(cell.value or "")
+                length = sum(2 if ord(c) > 127 else 1 for c in val)
+                max_len = max(max_len, length)
+            ws.column_dimensions[cell.column_letter].width = min(max_len + 4, 40)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="统计汇总.xlsx",
+    )
+
+
+@app.get("/api/export/detail")
+def api_export_detail():
+    """导出明细表，格式与导入的原始 Excel 一致"""
+    if not SESSIONS:
+        return jsonify({"error": "没有可导出的会话"}), 400
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    sauce_map = {s["id"]: s["name"] for s in MENU["sauces"]}
+    dish_map = {d["id"]: d for d in MENU["dishes"]}
+
+    for sid, session in SESSIONS.items():
+        orders = [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS]
+        if not orders:
+            continue
+
+        # 从会话标题提取园区
+        area = session["title"].split(" - ")[-1] if " - " in session["title"] else ""
+        title_prefix = session["title"].split(" - ")[0] if " - " in session["title"] else session["title"]
+
+        sheet_name = re.sub(r'[/\\[\]:*?]', '-', session["title"])[:31]
+        ws = wb.create_sheet(title=sheet_name)
+
+        # Row 1: 标题（合并单元格）
+        ws.append([session["title"], None, None, None, None, None, None])
+        ws.merge_cells("A1:G1")
+        ws["A1"].font = openpyxl.styles.Font(bold=True, size=14)
+        # Row 2: 表头（蓝色背景 + 四边框线）
+        ws.append(["序号", "部门", "姓名", "餐品名称", "酱汁", "金额", "就餐园区"])
+        header_fill = openpyxl.styles.PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
+        header_border = openpyxl.styles.Border(
+            left=openpyxl.styles.Side(style="thin", color="999999"),
+            right=openpyxl.styles.Side(style="thin", color="999999"),
+            top=openpyxl.styles.Side(style="thin", color="999999"),
+            bottom=openpyxl.styles.Side(style="thin", color="999999"),
+        )
+        for cell in ws[2]:
+            cell.fill = header_fill
+            cell.font = openpyxl.styles.Font(bold=True)
+            cell.border = header_border
+
+        # 数据行
+        grand_total = 0
+        for o in orders:
+            dish = dish_map.get(o["dish_id"], {})
+            dish_name = dish.get("name", "?")
+            if o.get("base"):
+                dish_name += f"（{o['base']}）"
+            sauce_name = sauce_map.get(o["sauce_ids"][0], "") if o.get("sauce_ids") else ""
+            ws.append([
+                o.get("seq", o["user_no"]),
+                "",
+                o["user_name"],
+                dish_name,
+                sauce_name,
+                o["unit_price"],
+                area,
+            ])
+            grand_total += o["unit_price"]
+
+        # 汇总行 + 送餐门店
+        ws.append(["送餐门店：适绿轻食中电店", None, None, "合计/元", None, grand_total, None])
+        ws.append(["送餐人：", None, None, "签收人：", None, "时间：", None])
+
+        # 最后两行合并：A:C, F:G（D/E 各自独立，保留签收人和时间）
+        summary_row = ws.max_row - 1
+        last_row = ws.max_row
+        for r in (summary_row, last_row):
+            ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"F{r}:G{r}")
+            ws.row_dimensions[r].height = 28
+
+        # 行高 + 对齐
+        center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
+        left_align = openpyxl.styles.Alignment(horizontal="left", vertical="center")
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+            if row[0].row not in (summary_row, last_row):
+                ws.row_dimensions[row[0].row].height = 22
+            for cell in row:
+                if isinstance(cell, openpyxl.cell.cell.MergedCell):
+                    continue
+                r, c = cell.row, cell.column
+                if r == summary_row:
+                    # 倒数第二行：全部居中
+                    cell.alignment = center_align
+                elif r == last_row:
+                    # 最后一行：A-C居左，D/F居左（签收人/时间），G居左
+                    cell.alignment = left_align if c <= 3 or c in (4, 6, 7) else center_align
+                else:
+                    # 数据行：最后一列(G)居左，其余居中
+                    cell.alignment = left_align if c == 7 else center_align
+
+        # 列宽自适应（跳过合并单元格）
+        for col_idx in range(1, 8):
+            col_letter = openpyxl.utils.get_column_letter(col_idx)
+            max_len = 0
+            for row_idx in range(1, ws.max_row + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                if isinstance(cell, openpyxl.cell.cell.MergedCell):
+                    continue
+                val = str(cell.value or "")
+                length = sum(2 if ord(c) > 127 else 1 for c in val)
+                max_len = max(max_len, length)
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+        # 序号列固定窄宽度
+        ws.column_dimensions["A"].width = 8
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="明细统计.xlsx",
+    )
+
+
 # ---------- Excel 导入 ----------
 def _char_overlap(a: str, b: str) -> float:
     """计算两个字符串的字符重叠率"""
@@ -284,6 +490,131 @@ def _parse_dish_base(cell: str) -> tuple[str, str]:
     return cell.strip(), ""
 
 
+def _create_session(title: str) -> tuple[str, list]:
+    """创建一个会话，返回 (session_id, warnings_list)"""
+    sid = gen_session_code()
+    SESSIONS[sid] = {
+        "id": sid,
+        "title": title,
+        "created_at": now_iso(),
+        "status": "active",
+        "user_names": [],
+        "order_ids": [],
+        "import_warnings": [],
+    }
+    return sid, SESSIONS[sid]["import_warnings"]
+
+
+def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauce_cell: str, base: str, seq: int = 0):
+    """解析并导入一条订单"""
+    if not user_name or not dish_cell:
+        return
+
+    dish = _match_dish(dish_cell)
+    if not dish:
+        warnings.append({"type": "dish", "original": dish_cell, "matched": None, "user": user_name})
+        return
+    elif dish["name"] != dish_cell:
+        warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name})
+
+    sauce_id = _match_sauce(sauce_cell)
+    if sauce_cell:
+        if sauce_id:
+            sauce_name = next(s["name"] for s in MENU["sauces"] if s["id"] == sauce_id)
+            if sauce_name != sauce_cell:
+                warnings.append({"type": "sauce", "original": sauce_cell, "matched": sauce_name, "user": user_name})
+        else:
+            warnings.append({"type": "sauce", "original": sauce_cell, "matched": None, "user": user_name})
+    sauce_ids = [sauce_id] if sauce_id else []
+
+    session = SESSIONS[sid]
+    if user_name not in session["user_names"]:
+        session["user_names"].append(user_name)
+    user_no = session["user_names"].index(user_name) + 1
+
+    unit_price = calc_unit_price(dish, sauce_ids, [])
+    order = {
+        "id": uuid.uuid4().hex[:12],
+        "session_id": sid,
+        "user_name": user_name,
+        "user_no": user_no,
+        "seq": seq,
+        "dish_id": dish["id"],
+        "base": base,
+        "sauce_ids": sauce_ids,
+        "addon_ids": [],
+        "note": "",
+        "unit_price": unit_price,
+        "created_at": now_iso(),
+    }
+    ORDERS[order["id"]] = order
+    session["order_ids"].append(order["id"])
+
+
+def _detect_format(headers: tuple) -> str:
+    """根据表头行判断格式：'v1' 每sheet一会话, 'v2' 按园区分组"""
+    # v2 格式：E列=主食, G列=就餐园区
+    if len(headers) >= 7 and headers[4] and "主食" in str(headers[4]):
+        return "v2"
+    return "v1"
+
+
+def _import_v1_sheet(sheet_name: str, rows: list) -> dict:
+    """格式1：每个 sheet 一个会话，base 写在菜品名括号里"""
+    title = str(rows[0][0] or "").strip()
+    title = f"{title} - {sheet_name}" if title else sheet_name
+
+    sid, warnings = _create_session(title)
+
+    for row in rows[2:]:
+        seq = row[0]
+        if not seq or not str(seq).strip().isdigit():
+            break
+        user_name = str(row[2] or "").strip()
+        dish_cell = str(row[3] or "").strip()
+        sauce_cell = str(row[4] or "").strip()
+        if not user_name or not dish_cell:
+            continue
+        dish_name, base = _parse_dish_base(dish_cell)
+        _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, int(seq))
+
+    return {"id": sid, "title": title, "warnings": len(warnings)}
+
+
+def _import_v2_sheet(sheet_name: str, rows: list) -> list[dict]:
+    """格式2：单 sheet，按就餐园区列分组生成多个会话"""
+    date_title = str(rows[0][0] or "").strip()
+    if not date_title:
+        date_title = sheet_name
+
+    # 按园区分组
+    groups: dict[str, list] = {}
+    for row in rows[2:]:
+        seq = row[0]
+        if not seq or not str(seq).strip().isdigit():
+            break
+        area = str(row[6] or "").strip() if len(row) > 6 else ""
+        if not area:
+            area = "未分组"
+        groups.setdefault(area, []).append(row)
+
+    results = []
+    for area, area_rows in groups.items():
+        title = f"{date_title} - {area}"
+        sid, warnings = _create_session(title)
+
+        for row in area_rows:
+            user_name = str(row[2] or "").strip()
+            dish_cell = str(row[3] or "").strip()
+            base = str(row[4] or "").strip() if len(row) > 4 else ""
+            sauce_cell = str(row[5] or "").strip() if len(row) > 5 else ""
+            _import_order(sid, warnings, user_name, dish_cell, sauce_cell, base, int(row[0]))
+
+        results.append({"id": sid, "title": title, "warnings": len(warnings)})
+
+    return results
+
+
 @app.post("/api/import")
 def api_import_excel():
     file = request.files.get("file")
@@ -302,81 +633,13 @@ def api_import_excel():
         if len(rows) < 3:
             continue
 
-        # Row 1: 标题 + sheet名 → 会话名称
-        title = str(rows[0][0] or "").strip()
-        if not title:
-            title = sheet_name
+        headers = rows[1]
+        fmt = _detect_format(headers)
+
+        if fmt == "v2":
+            created.extend(_import_v2_sheet(sheet_name, rows))
         else:
-            title = f"{title} - {sheet_name}"
-
-        # 创建会话
-        sid = gen_session_code()
-        SESSIONS[sid] = {
-            "id": sid,
-            "title": title,
-            "created_at": now_iso(),
-            "status": "active",
-            "user_names": [],
-            "order_ids": [],
-            "import_warnings": [],  # {type, original, matched}
-        }
-        warnings = SESSIONS[sid]["import_warnings"]
-
-        # Row 3 开始解析数据行（跳过 Row2 表头）
-        for row in rows[2:]:
-            seq = row[0]  # 序号
-            # 遇到非数字序号或空序号则停止（到达底部汇总行）
-            if not seq or not str(seq).strip().isdigit():
-                break
-
-            user_name = str(row[2] or "").strip()
-            dish_cell = str(row[3] or "").strip()
-            sauce_cell = str(row[4] or "").strip()
-
-            if not user_name or not dish_cell:
-                continue
-
-            dish_name, base = _parse_dish_base(dish_cell)
-            dish = _match_dish(dish_name)
-            if not dish:
-                warnings.append({"type": "dish", "original": dish_cell, "matched": None})
-                continue
-            elif dish["name"] != dish_name:
-                warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"]})
-
-            sauce_id = _match_sauce(sauce_cell)
-            if sauce_cell:
-                if sauce_id:
-                    sauce_name = next(s["name"] for s in MENU["sauces"] if s["id"] == sauce_id)
-                    if sauce_name != sauce_cell:
-                        warnings.append({"type": "sauce", "original": sauce_cell, "matched": sauce_name})
-                else:
-                    warnings.append({"type": "sauce", "original": sauce_cell, "matched": None})
-            sauce_ids = [sauce_id] if sauce_id else []
-
-            # 分配用户序号
-            if user_name not in SESSIONS[sid]["user_names"]:
-                SESSIONS[sid]["user_names"].append(user_name)
-            user_no = SESSIONS[sid]["user_names"].index(user_name) + 1
-
-            unit_price = calc_unit_price(dish, sauce_ids, [])
-            order = {
-                "id": uuid.uuid4().hex[:12],
-                "session_id": sid,
-                "user_name": user_name,
-                "user_no": user_no,
-                "dish_id": dish["id"],
-                "base": base,
-                "sauce_ids": sauce_ids,
-                "addon_ids": [],
-                "note": "",
-                "unit_price": unit_price,
-                "created_at": now_iso(),
-            }
-            ORDERS[order["id"]] = order
-            SESSIONS[sid]["order_ids"].append(order["id"])
-
-        created.append({"id": sid, "title": title, "warnings": len(warnings)})
+            created.append(_import_v1_sheet(sheet_name, rows))
 
     if not created:
         return jsonify({"error": "未解析到有效数据"}), 400

@@ -210,6 +210,7 @@
       <div class="row">
         <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">按人汇总</a>
         <a class="btn btn-ghost btn-sm" href="/menu/{{ session_id }}">点单页</a>
+        <a class="btn btn-ghost btn-sm" href="/">首页</a>
       </div>
     </div>
 
@@ -289,20 +290,21 @@
       const warnings = CURRENT_SESSION.import_warnings || [];
       const el = document.getElementById('warnings');
       if (!warnings.length) { el.innerHTML = ''; return; }
-      // 去重：相同 original 只显示一次
-      const seen = new Set();
-      const items = warnings.filter(w => {
+      // 按 type+original 分组，收集人名
+      const groups = {};
+      warnings.forEach(w => {
         const key = w.type + '|' + w.original;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
+        if (!groups[key]) groups[key] = { ...w, users: [] };
+        if (w.user) groups[key].users.push(w.user);
       });
-      const lines = items.map(w => {
-        const typeLabel = w.type === 'dish' ? '菜品' : '酱料';
-        if (w.matched) {
-          return `<div class="w-item">${typeLabel}：<span class="w-item">${w.original}</span><span class="w-arrow">&gt;</span>${w.matched}</div>`;
+      const lines = Object.values(groups).map(g => {
+        const typeLabel = g.type === 'dish' ? '菜品' : '酱料';
+        const users = g.users.length > 3 ? g.users.slice(0, 3).join('、') + '等' + g.users.length + '人' : g.users.join('、');
+        const userStr = users ? `<span style="color:var(--text-light);font-size:12px;">（${users}）</span>` : '';
+        if (g.matched) {
+          return `<div class="w-item">${typeLabel}：${g.original}<span class="w-arrow">&gt;</span>${g.matched}${userStr}</div>`;
         } else {
-          return `<div class="w-item">${typeLabel}：<span class="w-item">${w.original}</span><span class="w-arrow">&gt;</span><span class="w-unmatched">未匹配</span></div>`;
+          return `<div class="w-item">${typeLabel}：${g.original}<span class="w-arrow">&gt;</span><span class="w-unmatched">未匹配</span>${userStr}</div>`;
         }
       }).join('');
       el.innerHTML = `<div class="import-warnings"><div class="import-warnings-title">导入匹配说明</div>${lines}</div>`;

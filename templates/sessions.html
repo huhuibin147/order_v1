@@ -47,7 +47,11 @@
       <div>
         <h1>会话列表</h1>
       </div>
-      <a class="btn btn-ghost btn-sm" href="/">返回首页</a>
+      <div class="row">
+        <button class="btn btn-ghost btn-sm" id="btnExport">导出汇总</button>
+        <button class="btn btn-ghost btn-sm" id="btnExportDetail">导出明细</button>
+        <a class="btn btn-ghost btn-sm" href="/">首页</a>
+      </div>
     </div>
 
     <div id="content">加载中...</div>
@@ -77,6 +81,34 @@
       document.getElementById('content').innerHTML = html;
     }
     init();
+
+    async function downloadFile(url, filename) {
+      const r = await fetch(url);
+      if (!r.ok) { alert('导出失败'); return false; }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return true;
+    }
+
+    document.getElementById('btnExport').addEventListener('click', async () => {
+      const btn = document.getElementById('btnExport');
+      btn.disabled = true;
+      btn.textContent = '导出中...';
+      try { await downloadFile('/api/export', '统计汇总.xlsx'); }
+      finally { btn.disabled = false; btn.textContent = '导出汇总'; }
+    });
+
+    document.getElementById('btnExportDetail').addEventListener('click', async () => {
+      const btn = document.getElementById('btnExportDetail');
+      btn.disabled = true;
+      btn.textContent = '导出中...';
+      try { await downloadFile('/api/export/detail', '明细统计.xlsx'); }
+      finally { btn.disabled = false; btn.textContent = '导出明细'; }
+    });
   </script>
 </body>
 </html>
