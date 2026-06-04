@@ -14,8 +14,8 @@
         <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
       </div>
       <div class="row">
-        <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">查看汇总</a>
-        <a class="btn btn-ghost btn-sm" href="/">首页</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_summary', session_id=session_id) }}">查看汇总</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_index') }}">首页</a>
       </div>
     </div>
 
@@ -39,7 +39,7 @@
       <strong id="myCount">0</strong>
       <span>我已点的份数</span>
     </div>
-    <a class="btn" href="/summary/{{ session_id }}">查看汇总</a>
+    <a class="btn" href="{{ url_for('page_summary', session_id=session_id) }}">查看汇总</a>
   </div>
 
   <!-- 点单弹层 -->
@@ -77,6 +77,7 @@
 
   <script>
     const SESSION_ID = "{{ session_id }}";
+    const BASE = '{{ request.script_root }}';
     const STORAGE_NAME = 'order_v1_name_' + SESSION_ID;
     let MENU = null;
     let SESSION = null;
@@ -89,8 +90,8 @@
     // ---------- 初始化 ----------
     async function init() {
       const [menuRes, sessionRes] = await Promise.all([
-        fetch('/api/menu'),
-        fetch('/api/session/' + SESSION_ID)
+        fetch(BASE + '/api/menu'),
+        fetch(BASE + '/api/session/' + SESSION_ID)
       ]);
       if (!menuRes.ok || !sessionRes.ok) {
         alert('加载失败，请返回首页重试');
@@ -319,7 +320,7 @@
         return;
       }
       const note = document.getElementById('note').value.trim();
-      const r = await fetch('/api/session/' + SESSION_ID + '/order', {
+      const r = await fetch(BASE + '/api/session/' + SESSION_ID + '/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

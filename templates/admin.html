@@ -212,10 +212,10 @@
         <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
       </div>
       <div class="row">
-        <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">按人汇总</a>
-        <a class="btn btn-ghost btn-sm" href="/menu/{{ session_id }}">点单页</a>
-        <a class="btn btn-ghost btn-sm" href="/admin/sessions">会话列表</a>
-        <a class="btn btn-ghost btn-sm" href="/">首页</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_summary', session_id=session_id) }}">按人汇总</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_menu', session_id=session_id) }}">点单页</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_sessions') }}">会话列表</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_index') }}">首页</a>
       </div>
     </div>
 
@@ -230,14 +230,15 @@
 
   <script>
     const SESSION_ID = "{{ session_id }}";
+    const BASE = '{{ request.script_root }}';
     let MENU = null;
     let CURRENT_SESSION = null;
     let CURRENT_VIEW = 'dish';
 
     async function init() {
       const [menuRes, sessionRes] = await Promise.all([
-        fetch('/api/menu'),
-        fetch('/api/session/' + SESSION_ID)
+        fetch(BASE + '/api/menu'),
+        fetch(BASE + '/api/session/' + SESSION_ID)
       ]);
       if (!menuRes.ok || !sessionRes.ok) {
         document.getElementById('content').innerHTML =

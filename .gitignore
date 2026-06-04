@@ -23,3 +23,8 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Deploy
+deploy/config.yaml
+app.log
+app.pid

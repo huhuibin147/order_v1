@@ -12,7 +12,10 @@
       "Bash(curl -s -X DELETE http://127.0.0.1:35001/api/sessions)",
       "Bash(curl -s -o /tmp/summary.xlsx http://127.0.0.1:35001/api/export)",
       "Bash(curl -s -o /tmp/summary2.xlsx http://127.0.0.1:35001/api/export)",
-      "Bash(curl -s -o /tmp/summary3.xlsx http://127.0.0.1:35001/api/export)"
+      "Bash(curl -s -o /tmp/summary3.xlsx http://127.0.0.1:35001/api/export)",
+      "Bash(chmod +x *)",
+      "Bash(sudo apt-get install -y sshpass rsync)",
+      "Bash(curl -s https://interbot.cn/slqs/order/)"
     ]
   }
 }

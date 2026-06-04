@@ -14,9 +14,9 @@
         <div class="meta">会话码：<strong id="sessionCode" style="color:var(--primary);font-size:14px;">{{ session_id }}</strong></div>
       </div>
       <div class="row">
-        <a class="btn btn-ghost btn-sm" href="/admin/{{ session_id }}">后台汇总</a>
-        <a class="btn btn-ghost btn-sm" href="/menu/{{ session_id }}">继续点单</a>
-        <a class="btn btn-ghost btn-sm" href="/">首页</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_admin', session_id=session_id) }}">后台汇总</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_menu', session_id=session_id) }}">继续点单</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_index') }}">首页</a>
       </div>
     </div>
 
@@ -25,12 +25,13 @@
 
   <script>
     const SESSION_ID = "{{ session_id }}";
+    const BASE = '{{ request.script_root }}';
     let MENU = null;
 
     async function init() {
       const [menuRes, sessionRes] = await Promise.all([
-        fetch('/api/menu'),
-        fetch('/api/session/' + SESSION_ID)
+        fetch(BASE + '/api/menu'),
+        fetch(BASE + '/api/session/' + SESSION_ID)
       ]);
       if (!menuRes.ok || !sessionRes.ok) {
         document.getElementById('content').innerHTML =
@@ -114,7 +115,7 @@
       document.querySelectorAll('[data-del]').forEach(el => {
         el.addEventListener('click', async () => {
           if (!confirm('确定删除这一条？')) return;
-          const r = await fetch('/api/order/' + el.dataset.del, { method: 'DELETE' });
+          const r = await fetch(BASE + '/api/order/' + el.dataset.del, { method: 'DELETE' });
           if (r.ok) init();
         });
       });

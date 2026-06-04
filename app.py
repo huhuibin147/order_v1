@@ -14,11 +14,26 @@ from pathlib import Path
 import openpyxl
 import xlrd
 from flask import Flask, abort, jsonify, render_template, request, send_file
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 BASE_DIR = Path(__file__).parent
 MENU_PATH = BASE_DIR / "data" / "menu.json"
 
 app = Flask(__name__)
+
+
+class ScriptNameMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        script_name = environ.get("HTTP_X_SCRIPT_NAME", "")
+        if script_name:
+            environ["SCRIPT_NAME"] = script_name
+        return self.app(environ, start_response)
+
+
+app.wsgi_app = ScriptNameMiddleware(app.wsgi_app)
 
 # ---------- 数据加载 ----------
 with MENU_PATH.open("r", encoding="utf-8") as f:

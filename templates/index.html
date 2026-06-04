@@ -10,7 +10,7 @@
   <div class="container">
     <div class="appbar">
       <h1>点单系统</h1>
-      <a class="btn btn-ghost btn-sm" href="/admin/sessions">会话管理</a>
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('page_sessions') }}">会话管理</a>
     </div>
 
     <div class="card">
@@ -44,25 +44,26 @@
   </div>
 
   <script>
+    const BASE = '{{ request.script_root }}';
     document.getElementById('btnCreate').addEventListener('click', async () => {
       const title = document.getElementById('title').value.trim();
-      const r = await fetch('/api/session', {
+      const r = await fetch(BASE + '/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title })
       });
       const data = await r.json();
       if (!r.ok) { alert(data.error || '创建失败'); return; }
-      location.href = '/menu/' + data.id;
+      location.href = BASE + '/menu/' + data.id;
     });
 
     document.getElementById('btnJoin').addEventListener('click', async () => {
       const code = document.getElementById('code').value.trim().toUpperCase();
       if (code.length !== 6) { alert('请输入 6 位会话码'); return; }
-      const r = await fetch('/api/session/' + code);
+      const r = await fetch(BASE + '/api/session/' + code);
       const data = await r.json();
       if (!r.ok) { alert(data.error || '会话不存在'); return; }
-      location.href = '/menu/' + code;
+      location.href = BASE + '/menu/' + code;
     });
 
     // 输入框自动转大写
@@ -80,10 +81,10 @@
       btn.disabled = true;
       btn.textContent = '导入中...';
       try {
-        const r = await fetch('/api/import', { method: 'POST', body: fd });
+        const r = await fetch(BASE + '/api/import', { method: 'POST', body: fd });
         const data = await r.json();
         if (!r.ok) { alert(data.error || '导入失败'); return; }
-        location.href = '/admin/sessions';
+        location.href = BASE + '/admin/sessions';
       } finally {
         btn.disabled = false;
         btn.textContent = '导入';
