@@ -129,6 +129,7 @@ def api_add_order(session_id: str):
     dish_id = body.get("dish_id")
     sauce_ids = body.get("sauce_ids") or []
     addon_ids = body.get("addon_ids") or []
+    base = (body.get("base") or "").strip()
     note = (body.get("note") or "").strip()
     if not user_name:
         return jsonify({"error": "user_name required"}), 400
@@ -138,6 +139,10 @@ def api_add_order(session_id: str):
     if dish.get("sauce_mode") == "single_required":
         if not isinstance(sauce_ids, list) or len(sauce_ids) != 1:
             return jsonify({"error": "sauce required (pick exactly 1)"}), 400
+    base_options = dish.get("base_options")
+    if base_options:
+        if not base or base not in base_options:
+            return jsonify({"error": "base required (pick 1 from base_options)"}), 400
     unit_price = calc_unit_price(dish, sauce_ids, addon_ids)
     # 分配用户序号：按首次出现的昵称顺序
     if user_name not in s["user_names"]:
@@ -149,6 +154,7 @@ def api_add_order(session_id: str):
         "user_name": user_name,
         "user_no": user_no,
         "dish_id": dish_id,
+        "base": base,
         "sauce_ids": sauce_ids,
         "addon_ids": addon_ids,
         "note": note,

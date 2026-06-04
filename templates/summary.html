@@ -43,6 +43,11 @@
     }
 
     function dishName(id) { return (MENU.dishes.find(d => d.id === id) || {}).name || '未知菜品'; }
+    // 展示名：菜名（主食底）—— 有 base 才拼后缀
+    function displayName(o) {
+      const d = MENU.dishes.find(x => x.id === o.dish_id) || {};
+      return d.name + (o.base ? `（${o.base}）` : '');
+    }
     function sauceName(id) { return (MENU.sauces.find(s => s.id === id) || {}).name; }
     function addonName(id) { return (MENU.addons.find(a => a.id === id) || {}).name; }
 
@@ -77,7 +82,7 @@
           return `
             <div class="summary-item" data-oid="${o.id}">
               <div class="summary-item-main">
-                <div class="summary-item-name">${dishName(o.dish_id)}</div>
+                <div class="summary-item-name">${displayName(o)}</div>
                 <div class="summary-item-detail">${detail.join(' · ') || '—'}</div>
               </div>
               <div class="summary-item-price">¥${o.unit_price}</div>

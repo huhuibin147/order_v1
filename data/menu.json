@@ -11,19 +11,11 @@
   ],
   "addons": [],
   "dishes": [
-    { "id": "d_steak_shrimp_grain",  "name": "牛排大虾双拼碗（杂粮饭）", "category": "双拼碗", "price": 21, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_steak_shrimp_pasta",  "name": "牛排大虾双拼碗（意面）",   "category": "双拼碗", "price": 21, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_steak_shrimp_buck",   "name": "牛排大虾双拼碗（荞麦面）", "category": "双拼碗", "price": 21, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-
-    { "id": "d_pepper_shrimp_grain", "name": "黑椒牛肉虾滑双拼碗（杂粮饭）", "category": "双拼碗", "price": 21, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_pepper_shrimp_pasta", "name": "黑椒牛肉虾滑双拼碗（意面）",   "category": "双拼碗", "price": 21, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_pepper_shrimp_buck",  "name": "黑椒牛肉虾滑双拼碗（荞麦面）", "category": "双拼碗", "price": 21, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
+    { "id": "d_steak_shrimp",  "name": "牛排大虾双拼碗",     "category": "双拼碗", "price": 21, "description": "", "base_options": ["杂粮饭", "意面", "荞麦面"], "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
+    { "id": "d_pepper_shrimp", "name": "黑椒牛肉虾滑双拼碗", "category": "双拼碗", "price": 21, "description": "", "base_options": ["杂粮饭", "意面", "荞麦面"], "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
+    { "id": "d_chicken_beef",  "name": "鸡胸肉牛肉双拼碗",   "category": "双拼碗", "price": 19, "description": "", "base_options": ["杂粮饭", "意面", "荞麦面"], "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
 
     { "id": "d_garlic_shrimp_pasta", "name": "蒜蓉开背大虾炒意面",   "category": "意面",   "price": 19, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-
-    { "id": "d_chicken_beef_grain",  "name": "鸡胸肉牛肉双拼碗（杂粮饭）", "category": "双拼碗", "price": 19, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_chicken_beef_pasta",  "name": "鸡胸肉牛肉双拼碗（意面）",   "category": "双拼碗", "price": 19, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_chicken_beef_buck",   "name": "鸡胸肉牛肉双拼碗（荞麦面）", "category": "双拼碗", "price": 19, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
 
     { "id": "d_tuna_salad",          "name": "金枪鱼土豆泥沙拉",     "category": "沙拉",   "price": 19, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
     { "id": "d_pepper_beef_salad",   "name": "黑椒牛肉土豆泥沙拉",   "category": "沙拉",   "price": 19, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },

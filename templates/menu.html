@@ -45,6 +45,11 @@
       <h3 id="modalDishName"></h3>
       <div class="modal-sub" id="modalDishDesc"></div>
 
+      <div class="option-group" id="baseGroup" style="display:none;">
+        <div class="option-group-title" id="baseTitle">主食底（X选1）</div>
+        <div class="options" id="baseOptions"></div>
+      </div>
+
       <div class="option-group" id="sauceGroup" style="display:none;">
         <div class="option-group-title" id="sauceTitle">选酱料（可多选 / 不选）</div>
         <div class="options" id="sauceOptions"></div>
@@ -72,8 +77,9 @@
     const STORAGE_NAME = 'order_v1_name_' + SESSION_ID;
     let MENU = null;
     let SESSION = null;
-    let activeCategory = null;
+    let activeCategory = 'all';
     let currentDish = null;
+    let selectedBase = null;
     let selectedSauces = new Set();
     let selectedAddons = new Set();
 
@@ -106,12 +112,15 @@
     }
 
     // ---------- 渲染 ----------
+    const CAT_ALL = 'all';
     function renderTabs() {
       const categories = [...new Set(MENU.dishes.map(d => d.category))];
       const tabs = document.getElementById('tabs');
-      tabs.innerHTML = categories.map(c =>
-        `<div class="tab${c === activeCategory ? ' active' : ''}" data-cat="${c}">${c}</div>`
-      ).join('');
+      const allCats = [CAT_ALL, ...categories];
+      tabs.innerHTML = allCats.map(c => {
+        const label = c === CAT_ALL ? '全部' : c;
+        return `<div class="tab${c === activeCategory ? ' active' : ''}" data-cat="${c}">${label}</div>`;
+      }).join('');
       tabs.querySelectorAll('.tab').forEach(t => {
         t.addEventListener('click', () => {
           activeCategory = t.dataset.cat;
@@ -119,14 +128,12 @@
           renderDishes();
         });
       });
-      if (!activeCategory && categories.length) {
-        activeCategory = categories[0];
-        renderTabs();
-      }
     }
 
     function renderDishes() {
-      const list = MENU.dishes.filter(d => d.category === activeCategory);
+      const list = activeCategory === CAT_ALL
+        ? MENU.dishes
+        : MENU.dishes.filter(d => d.category === activeCategory);
       const empty = document.getElementById('empty');
       if (!list.length) {
         document.getElementById('dishList').innerHTML = '';
@@ -162,8 +169,37 @@
       document.getElementById('modalDishName').textContent = currentDish.name;
       document.getElementById('modalDishDesc').textContent = `${currentDish.description || ''} · ¥${currentDish.price}`;
       document.getElementById('note').value = '';
+      selectedBase = null;
       selectedSauces.clear();
       selectedAddons.clear();
+
+      // 主食底（必选单选，仅在 dish.base_options 存在时出现）
+      const baseOptions = currentDish.base_options || [];
+      const baseGroup = document.getElementById('baseGroup');
+      if (baseOptions.length) {
+        baseGroup.style.display = 'block';
+        document.getElementById('baseTitle').textContent = `主食底（${baseOptions.length}选1）`;
+        document.getElementById('baseTitle').classList.add('required');
+        document.getElementById('baseOptions').innerHTML = baseOptions.map(b =>
+          `<div class="option" data-base="${b}">${b}</div>`
+        ).join('');
+        document.getElementById('baseOptions').querySelectorAll('[data-base]').forEach(el => {
+          el.addEventListener('click', () => {
+            const v = el.dataset.base;
+            if (selectedBase === v) {
+              selectedBase = null;
+              el.classList.remove('selected');
+            } else {
+              document.querySelectorAll('#baseOptions .option').forEach(o => o.classList.remove('selected'));
+              selectedBase = v;
+              el.classList.add('selected');
+            }
+            updateConfirmState();
+          });
+        });
+      } else {
+        baseGroup.style.display = 'none';
+      }
 
       // 酱料
       const sauces = currentDish.sauce_ids.map(id => MENU.sauces.find(s => s.id === id)).filter(Boolean);
@@ -239,7 +275,13 @@
 
     function updateConfirmState() {
       const btn = document.getElementById('btnConfirm');
-      if (currentDish && currentDish.sauce_mode === 'single_required' && selectedSauces.size === 0) {
+      if (!currentDish) return;
+      const needBase = (currentDish.base_options || []).length > 0 && !selectedBase;
+      const needSauce = currentDish.sauce_mode === 'single_required' && selectedSauces.size === 0;
+      if (needBase) {
+        btn.disabled = true;
+        btn.textContent = '请先选主食底';
+      } else if (needSauce) {
         btn.disabled = true;
         btn.textContent = '请先选酱料';
       } else {
@@ -265,6 +307,10 @@
         document.getElementById('userName').focus();
         return;
       }
+      if ((currentDish.base_options || []).length && !selectedBase) {
+        alert('请先选主食底');
+        return;
+      }
       if (currentDish.sauce_mode === 'single_required' && selectedSauces.size === 0) {
         alert('请先选一种酱料');
         return;
@@ -276,6 +322,7 @@
         body: JSON.stringify({
           user_name: userName,
           dish_id: currentDish.id,
+          base: selectedBase,
           sauce_ids: [...selectedSauces],
           addon_ids: [...selectedAddons],
           note

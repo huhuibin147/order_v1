@@ -206,14 +206,19 @@
     }
 
     function dishName(id) { return (MENU.dishes.find(d => d.id === id) || {}).name || '未知菜品'; }
+    // 展示名：菜名（主食底）—— 有 base 才拼后缀
+    function displayName(o) {
+      const d = MENU.dishes.find(x => x.id === o.dish_id) || {};
+      return d.name + (o.base ? `（${o.base}）` : '');
+    }
     function sauceName(id) { return (MENU.sauces.find(s => s.id === id) || {}).name; }
     function addonName(id) { return (MENU.addons.find(a => a.id === id) || {}).name; }
 
-    // 规格 key：酱料id排序 + 附加品id排序 + 备注
+    // 规格 key：主食底 + 酱料id排序 + 附加品id排序 + 备注
     function specKey(o) {
       const sauces = [...(o.sauce_ids || [])].sort();
       const addons = [...(o.addon_ids || [])].sort();
-      return sauces.join(',') + '|' + addons.join(',') + '|' + (o.note || '');
+      return (o.base || '') + '|' + sauces.join(',') + '|' + addons.join(',') + '|' + (o.note || '');
     }
     function specLabel(o) {
       const parts = [];
@@ -246,20 +251,23 @@
       // 一级：按 dish 分组
       const byDish = {};
       session.orders.forEach(o => {
-        if (!byDish[o.dish_id]) byDish[o.dish_id] = [];
-        byDish[o.dish_id].push(o);
+        // 按展示名（菜名 + 主食底）分组：相同菜不同底拆成不同行
+        const key = displayName(o);
+        if (!byDish[key]) byDish[key] = [];
+        byDish[key].push(o);
       });
 
       // 保持原始顺序（按首次出现）
-      const orderedDishIds = [];
+      const orderedDishNames = [];
       session.orders.forEach(o => {
-        if (!orderedDishIds.includes(o.dish_id)) orderedDishIds.push(o.dish_id);
+        const key = displayName(o);
+        if (!orderedDishNames.includes(key)) orderedDishNames.push(key);
       });
 
       const grandTotal = session.orders.reduce((s, o) => s + o.unit_price, 0);
 
-      const html = orderedDishIds.map(dishId => {
-        const orders = byDish[dishId];
+      const html = orderedDishNames.map(displayLabel => {
+        const orders = byDish[displayLabel];
         const dishTotal = orders.reduce((s, o) => s + o.unit_price, 0);
         // 二级：按 spec 分组
         const bySpec = {};
@@ -285,7 +293,7 @@
         return `
           <div class="admin-dish">
             <div class="admin-dish-head">
-              <div class="admin-dish-name">${dishName(dishId)}</div>
+              <div class="admin-dish-name">${displayLabel}</div>
               <div class="admin-dish-stat">× ${orders.length} 份 · ¥${dishTotal.toFixed(2)}</div>
             </div>
             ${specsHtml}
@@ -301,7 +309,7 @@
       `;
     }
 
-    // ---- 视图2：按项目计数（菜品 + 附加品各算一条） ----
+    // ---- 视图2：按项目计数（菜品 / 酱料 / 附加品各算一条） ----
     function renderItems() {
       const session = CURRENT_SESSION;
       if (!session.orders.length) {
@@ -310,7 +318,7 @@
         return;
       }
 
-      // 聚合：key = 'dish:<id>' 或 'addon:<id>'
+      // 聚合：key = 'dish:<id>:<base>' / 'sauce:<id>' / 'addon:<id>'
       const map = {};
       function bump(key, name, tag, userNo) {
         if (!map[key]) map[key] = { name, tag, count: 0, userNos: new Set() };
@@ -318,7 +326,10 @@
         map[key].userNos.add(userNo);
       }
       session.orders.forEach(o => {
-        bump('dish:' + o.dish_id, dishName(o.dish_id), '菜品', o.user_no);
+        bump('dish:' + o.dish_id + ':' + (o.base || ''), displayName(o), '菜品', o.user_no);
+        (o.sauce_ids || []).forEach(sid => {
+          bump('sauce:' + sid, sauceName(sid), '酱料', o.user_no);
+        });
         (o.addon_ids || []).forEach(aid => {
           bump('addon:' + aid, addonName(aid), '附加品', o.user_no);
         });
