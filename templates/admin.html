@@ -123,6 +123,9 @@
       font-weight: 600;
       font-size: 13px;
     }
+    .items-table-head > :nth-child(2) {
+      margin-right: 20px;
+    }
     .items-table-row {
       border-top: 1px solid var(--border);
       font-size: 14px;
@@ -139,6 +142,7 @@
       color: var(--primary);
       font-weight: 600;
       text-align: right;
+      margin-right: 20px;
     }
     .items-table-row .col-users {
       color: var(--text-light);
@@ -210,6 +214,7 @@
       <div class="row">
         <a class="btn btn-ghost btn-sm" href="/summary/{{ session_id }}">按人汇总</a>
         <a class="btn btn-ghost btn-sm" href="/menu/{{ session_id }}">点单页</a>
+        <a class="btn btn-ghost btn-sm" href="/admin/sessions">会话列表</a>
         <a class="btn btn-ghost btn-sm" href="/">首页</a>
       </div>
     </div>

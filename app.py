@@ -12,6 +12,7 @@ from io import BytesIO
 from pathlib import Path
 
 import openpyxl
+import xlrd
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 BASE_DIR = Path(__file__).parent
@@ -559,6 +560,16 @@ def _detect_format(headers: tuple) -> str:
     return "v1"
 
 
+def _parse_seq(val) -> int | None:
+    """将序号值转为 int，支持 int/float/str，无效返回 None"""
+    if isinstance(val, (int, float)):
+        return int(val) if val else None
+    s = str(val).strip()
+    if s.isdigit():
+        return int(s)
+    return None
+
+
 def _import_v1_sheet(sheet_name: str, rows: list) -> dict:
     """格式1：每个 sheet 一个会话，base 写在菜品名括号里"""
     title = str(rows[0][0] or "").strip()
@@ -567,8 +578,8 @@ def _import_v1_sheet(sheet_name: str, rows: list) -> dict:
     sid, warnings = _create_session(title)
 
     for row in rows[2:]:
-        seq = row[0]
-        if not seq or not str(seq).strip().isdigit():
+        seq = _parse_seq(row[0])
+        if not seq:
             break
         user_name = str(row[2] or "").strip()
         dish_cell = str(row[3] or "").strip()
@@ -576,7 +587,7 @@ def _import_v1_sheet(sheet_name: str, rows: list) -> dict:
         if not user_name or not dish_cell:
             continue
         dish_name, base = _parse_dish_base(dish_cell)
-        _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, int(seq))
+        _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, seq)
 
     return {"id": sid, "title": title, "warnings": len(warnings)}
 
@@ -590,8 +601,8 @@ def _import_v2_sheet(sheet_name: str, rows: list) -> list[dict]:
     # 按园区分组
     groups: dict[str, list] = {}
     for row in rows[2:]:
-        seq = row[0]
-        if not seq or not str(seq).strip().isdigit():
+        seq = _parse_seq(row[0])
+        if not seq:
             break
         area = str(row[6] or "").strip() if len(row) > 6 else ""
         if not area:
@@ -608,11 +619,33 @@ def _import_v2_sheet(sheet_name: str, rows: list) -> list[dict]:
             dish_cell = str(row[3] or "").strip()
             base = str(row[4] or "").strip() if len(row) > 4 else ""
             sauce_cell = str(row[5] or "").strip() if len(row) > 5 else ""
-            _import_order(sid, warnings, user_name, dish_cell, sauce_cell, base, int(row[0]))
+            _import_order(sid, warnings, user_name, dish_cell, sauce_cell, base, _parse_seq(row[0]) or 0)
 
         results.append({"id": sid, "title": title, "warnings": len(warnings)})
 
     return results
+
+
+def _sheet_date(sheet_name: str) -> tuple[int, int]:
+    """从 sheet 名解析日期，如 '6.1-6.5' → (6, 1)，用于排序取最新"""
+    m = re.search(r'(\d+)\.(\d+)', sheet_name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return 0, 0
+
+
+def _sheet_menu_score(rows: list) -> float:
+    """统计 sheet 中菜品名与当前菜单的匹配率"""
+    dish_names = {d["name"] for d in MENU["dishes"]}
+    total, matched = 0, 0
+    for row in rows[2:]:
+        dish_cell = str(row[3] or "").strip() if len(row) > 3 else ""
+        if not dish_cell:
+            continue
+        total += 1
+        if dish_cell in dish_names or any(d in dish_cell or dish_cell in d for d in dish_names):
+            matched += 1
+    return matched / total if total else 0
 
 
 @app.post("/api/import")
@@ -621,25 +654,57 @@ def api_import_excel():
     if not file:
         return jsonify({"error": "请上传 Excel 文件"}), 400
 
+    filename = (file.filename or "").lower()
+    if not (filename.endswith(".xls") or filename.endswith(".xlsx")):
+        return jsonify({"error": "仅支持 .xls 或 .xlsx 格式"}), 400
+
     try:
-        wb = openpyxl.load_workbook(file, data_only=True)
+        if filename.endswith(".xls"):
+            wb = xlrd.open_workbook(file_contents=file.read())
+            sheets = []
+            for name in wb.sheet_names():
+                ws = wb.sheet_by_name(name)
+                rows = []
+                for i in range(ws.nrows):
+                    rows.append([ws.cell_value(i, j) for j in range(ws.ncols)])
+                sheets.append((name, rows))
+        else:
+            wb = openpyxl.load_workbook(file, data_only=True)
+            sheets = []
+            for name in wb.sheetnames:
+                ws = wb[name]
+                sheets.append((name, list(ws.iter_rows(min_row=1, values_only=True))))
     except Exception:
         return jsonify({"error": "无法解析 Excel 文件"}), 400
 
-    created = []
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        rows = list(ws.iter_rows(min_row=1, values_only=True))
+    # 筛选候选 sheet：跳过菜单 sheet 和数据不足的 sheet
+    candidates = []
+    for sheet_name, rows in sheets:
         if len(rows) < 3:
             continue
-
+        if "菜单" in sheet_name:
+            continue
         headers = rows[1]
-        fmt = _detect_format(headers)
+        if not (len(headers) >= 5 and "序号" in str(headers[0])):
+            continue
+        candidates.append((sheet_name, rows))
 
-        if fmt == "v2":
-            created.extend(_import_v2_sheet(sheet_name, rows))
-        else:
-            created.append(_import_v1_sheet(sheet_name, rows))
+    if not candidates:
+        return jsonify({"error": "未找到有效的订单数据 sheet"}), 400
+
+    # 选最佳 sheet：菜单匹配率最高的，相同时取最新日期
+    def _score(item):
+        name, rows = item
+        return (_sheet_menu_score(rows), *_sheet_date(name))
+
+    best_name, best_rows = max(candidates, key=_score)
+
+    headers = best_rows[1]
+    fmt = _detect_format(headers)
+    if fmt == "v2":
+        created = _import_v2_sheet(best_name, best_rows)
+    else:
+        created = [_import_v1_sheet(best_name, best_rows)]
 
     if not created:
         return jsonify({"error": "未解析到有效数据"}), 400
