@@ -149,6 +149,30 @@
       font-weight: 600;
       margin-right: 4px;
     }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-light);
+      padding: 12px 0 4px;
+    }
+    .items-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 8px 0;
+    }
+    .items-tab {
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .items-tab.active {
+      background: var(--primary);
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -310,6 +334,8 @@
     }
 
     // ---- 视图2：按项目计数（菜品 / 酱料 / 附加品各算一条） ----
+    let ITEMS_TAB = 'all';  // all | dish | sauce
+
     function renderItems() {
       const session = CURRENT_SESSION;
       if (!session.orders.length) {
@@ -326,7 +352,7 @@
         map[key].userNos.add(userNo);
       }
       session.orders.forEach(o => {
-        bump('dish:' + o.dish_id + ':' + (o.base || ''), displayName(o), '菜品', o.user_no);
+        bump('dish:' + o.dish_id + ':' + (o.base || ''), displayName(o), '主食', o.user_no);
         (o.sauce_ids || []).forEach(sid => {
           bump('sauce:' + sid, sauceName(sid), '酱料', o.user_no);
         });
@@ -335,40 +361,70 @@
         });
       });
 
-      const rows = Object.values(map).map(r => ({
+      const allRows = Object.values(map).map(r => ({
         name: r.name,
         tag: r.tag,
         count: r.count,
         userNos: [...r.userNos].sort((a, b) => a - b),
       }));
-      // 按数量降序，同数量按名称
-      rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'));
 
-      const totalItems = rows.reduce((s, r) => s + r.count, 0);
-      const rowsHtml = rows.map(r => {
-        const users = r.userNos.map(n => `<span class="no">${n}号</span>`).join(' ');
-        return `
-          <div class="items-table-row">
-            <div class="col-name">${r.name}<span class="tag">${r.tag}</span></div>
-            <div class="col-cnt">× ${r.count}</div>
-            <div class="col-users">${users}</div>
-          </div>
-        `;
-      }).join('');
+      const dishRows = allRows.filter(r => r.tag === '主食')
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'));
+      const sauceRows = allRows.filter(r => r.tag === '酱料')
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'));
+
+      function renderRows(rows) {
+        return rows.map(r => {
+          const users = r.userNos.map(n => `<span class="no">${n}号</span>`).join(' ');
+          return `
+            <div class="items-table-row">
+              <div class="col-name">${r.name}<span class="tag">${r.tag}</span></div>
+              <div class="col-cnt">× ${r.count}</div>
+              <div class="col-users">${users}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      let tableContent = '';
+      if (ITEMS_TAB === 'all') {
+        tableContent += renderRows(dishRows);
+        tableContent += renderRows(sauceRows);
+      } else if (ITEMS_TAB === 'dish') {
+        tableContent += renderRows(dishRows);
+      } else {
+        tableContent += renderRows(sauceRows);
+      }
+
+      const visibleRows = ITEMS_TAB === 'all' ? allRows : (ITEMS_TAB === 'dish' ? dishRows : sauceRows);
+      const totalItems = visibleRows.reduce((s, r) => s + r.count, 0);
 
       document.getElementById('content').innerHTML = `
+        <div class="items-tabs" id="itemsTabs">
+          <div class="items-tab ${ITEMS_TAB === 'all' ? 'active' : ''}" data-itab="all">全部</div>
+          <div class="items-tab ${ITEMS_TAB === 'dish' ? 'active' : ''}" data-itab="dish">主食</div>
+          <div class="items-tab ${ITEMS_TAB === 'sauce' ? 'active' : ''}" data-itab="sauce">酱料</div>
+        </div>
         <div class="items-table">
           <div class="items-table-head">
             <div>项目</div>
             <div style="text-align:right;">数量</div>
             <div>序号</div>
           </div>
-          ${rowsHtml}
+          ${tableContent}
         </div>
         <div class="grand-total">
-          <div class="label">合计 ${rows.length} 项 · 共 ${totalItems} 件</div>
+          <div class="label">合计 ${visibleRows.length} 项 · 共 ${totalItems} 件</div>
         </div>
       `;
+
+      // 绑定 items tab 切换
+      document.querySelectorAll('#itemsTabs .items-tab').forEach(el => {
+        el.addEventListener('click', () => {
+          ITEMS_TAB = el.dataset.itab;
+          renderItems();
+        });
+      });
     }
 
     init();
