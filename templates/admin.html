@@ -76,6 +76,79 @@
       font-weight: 600;
       margin-right: 2px;
     }
+
+    /* 视图切换 tab */
+    .view-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 0;
+      position: sticky;
+      top: 56px;
+      background: var(--card-bg);
+      z-index: 9;
+    }
+    .view-tab {
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: #f0f0f0;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .view-tab.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    /* 项目计数表 */
+    .items-table {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin: 12px 0;
+    }
+    .items-table-head,
+    .items-table-row {
+      display: grid;
+      grid-template-columns: 1fr 60px 1.2fr;
+      align-items: center;
+      padding: 10px 14px;
+      gap: 8px;
+    }
+    .items-table-head {
+      background: #fef0eb;
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .items-table-row {
+      border-top: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .items-table-row .col-name {
+      font-weight: 500;
+    }
+    .items-table-row .col-name .tag {
+      font-size: 11px;
+      padding: 1px 6px;
+      margin-left: 6px;
+    }
+    .items-table-row .col-cnt {
+      color: var(--primary);
+      font-weight: 600;
+      text-align: right;
+    }
+    .items-table-row .col-users {
+      color: var(--text-light);
+      font-size: 12px;
+    }
+    .items-table-row .col-users .no {
+      color: var(--primary);
+      font-weight: 600;
+      margin-right: 4px;
+    }
   </style>
 </head>
 <body>
@@ -91,12 +164,19 @@
       </div>
     </div>
 
+    <div class="view-tabs" id="viewTabs">
+      <div class="view-tab active" data-view="dish">按菜品汇总</div>
+      <div class="view-tab" data-view="items">按项目计数</div>
+    </div>
+
     <div id="content">加载中...</div>
   </div>
 
   <script>
     const SESSION_ID = "{{ session_id }}";
     let MENU = null;
+    let CURRENT_SESSION = null;
+    let CURRENT_VIEW = 'dish';
 
     async function init() {
       const [menuRes, sessionRes] = await Promise.all([
@@ -109,9 +189,20 @@
         return;
       }
       MENU = await menuRes.json();
-      const session = await sessionRes.json();
-      document.getElementById('sessionTitle').textContent = session.title + ' · 后台';
-      render(session);
+      CURRENT_SESSION = await sessionRes.json();
+      document.getElementById('sessionTitle').textContent = CURRENT_SESSION.title + ' · 后台';
+      render();
+
+      // tab 切换
+      document.querySelectorAll('#viewTabs .view-tab').forEach(el => {
+        el.addEventListener('click', () => {
+          CURRENT_VIEW = el.dataset.view;
+          document.querySelectorAll('#viewTabs .view-tab').forEach(t => {
+            t.classList.toggle('active', t === el);
+          });
+          render();
+        });
+      });
     }
 
     function dishName(id) { return (MENU.dishes.find(d => d.id === id) || {}).name || '未知菜品'; }
@@ -138,7 +229,14 @@
       return parts.join(' · ');
     }
 
-    function render(session) {
+    function render() {
+      if (CURRENT_VIEW === 'dish') renderDish();
+      else renderItems();
+    }
+
+    // ---- 视图1：按菜品汇总 ----
+    function renderDish() {
+      const session = CURRENT_SESSION;
       if (!session.orders.length) {
         document.getElementById('content').innerHTML =
           '<div class="empty"><span class="emoji">📋</span>还没人点单</div>';
@@ -199,6 +297,65 @@
         <div class="grand-total">
           <div class="label">合计 ${session.orders.length} 份</div>
           <div class="num">¥${grandTotal.toFixed(2)}</div>
+        </div>
+      `;
+    }
+
+    // ---- 视图2：按项目计数（菜品 + 附加品各算一条） ----
+    function renderItems() {
+      const session = CURRENT_SESSION;
+      if (!session.orders.length) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty"><span class="emoji">📋</span>还没人点单</div>';
+        return;
+      }
+
+      // 聚合：key = 'dish:<id>' 或 'addon:<id>'
+      const map = {};
+      function bump(key, name, tag, userNo) {
+        if (!map[key]) map[key] = { name, tag, count: 0, userNos: new Set() };
+        map[key].count += 1;
+        map[key].userNos.add(userNo);
+      }
+      session.orders.forEach(o => {
+        bump('dish:' + o.dish_id, dishName(o.dish_id), '菜品', o.user_no);
+        (o.addon_ids || []).forEach(aid => {
+          bump('addon:' + aid, addonName(aid), '附加品', o.user_no);
+        });
+      });
+
+      const rows = Object.values(map).map(r => ({
+        name: r.name,
+        tag: r.tag,
+        count: r.count,
+        userNos: [...r.userNos].sort((a, b) => a - b),
+      }));
+      // 按数量降序，同数量按名称
+      rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'));
+
+      const totalItems = rows.reduce((s, r) => s + r.count, 0);
+      const rowsHtml = rows.map(r => {
+        const users = r.userNos.map(n => `<span class="no">${n}号</span>`).join(' ');
+        return `
+          <div class="items-table-row">
+            <div class="col-name">${r.name}<span class="tag">${r.tag}</span></div>
+            <div class="col-cnt">× ${r.count}</div>
+            <div class="col-users">${users}</div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('content').innerHTML = `
+        <div class="items-table">
+          <div class="items-table-head">
+            <div>项目</div>
+            <div style="text-align:right;">数量</div>
+            <div>序号</div>
+          </div>
+          ${rowsHtml}
+        </div>
+        <div class="grand-total">
+          <div class="label">合计 ${rows.length} 项 · 共 ${totalItems} 件</div>
         </div>
       `;
     }
