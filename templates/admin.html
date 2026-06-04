@@ -173,6 +173,31 @@
       background: var(--primary);
       color: #fff;
     }
+    .import-warnings {
+      background: #fff8e1;
+      border: 1px solid #ffe082;
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      margin: 10px 0;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .import-warnings-title {
+      font-weight: 600;
+      color: #e65100;
+      margin-bottom: 6px;
+    }
+    .import-warnings .w-item {
+      color: var(--text);
+    }
+    .import-warnings .w-arrow {
+      color: var(--text-light);
+      margin: 0 4px;
+    }
+    .import-warnings .w-unmatched {
+      color: var(--danger);
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -193,6 +218,7 @@
       <div class="view-tab" data-view="items">按项目计数</div>
     </div>
 
+    <div id="warnings"></div>
     <div id="content">加载中...</div>
   </div>
 
@@ -215,6 +241,7 @@
       MENU = await menuRes.json();
       CURRENT_SESSION = await sessionRes.json();
       document.getElementById('sessionTitle').textContent = CURRENT_SESSION.title + ' · 后台';
+      renderWarnings();
       render();
 
       // tab 切换
@@ -256,6 +283,29 @@
       }
       if (o.note) parts.push('备注：' + o.note);
       return parts.join(' · ');
+    }
+
+    function renderWarnings() {
+      const warnings = CURRENT_SESSION.import_warnings || [];
+      const el = document.getElementById('warnings');
+      if (!warnings.length) { el.innerHTML = ''; return; }
+      // 去重：相同 original 只显示一次
+      const seen = new Set();
+      const items = warnings.filter(w => {
+        const key = w.type + '|' + w.original;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const lines = items.map(w => {
+        const typeLabel = w.type === 'dish' ? '菜品' : '酱料';
+        if (w.matched) {
+          return `<div class="w-item">${typeLabel}：<span class="w-item">${w.original}</span><span class="w-arrow">&gt;</span>${w.matched}</div>`;
+        } else {
+          return `<div class="w-item">${typeLabel}：<span class="w-item">${w.original}</span><span class="w-arrow">&gt;</span><span class="w-unmatched">未匹配</span></div>`;
+        }
+      }).join('');
+      el.innerHTML = `<div class="import-warnings"><div class="import-warnings-title">导入匹配说明</div>${lines}</div>`;
     }
 
     function render() {

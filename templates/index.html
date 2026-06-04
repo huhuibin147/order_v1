@@ -30,6 +30,13 @@
       <button class="btn btn-secondary" id="btnJoin">加入会话</button>
     </div>
 
+    <div class="card">
+      <h3>导入 Excel</h3>
+      <p class="muted">上传已有的统计表，每个 Sheet 自动生成一个会话。</p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="margin-bottom:12px;">
+      <button class="btn btn-secondary" id="btnImport">导入</button>
+    </div>
+
     <p class="muted" style="text-align:center;padding:24px 0;">
       数据保存在内存中，服务器重启后清空。
     </p>
@@ -60,6 +67,26 @@
     // 输入框自动转大写
     document.getElementById('code').addEventListener('input', e => {
       e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Excel 导入
+    document.getElementById('btnImport').addEventListener('click', async () => {
+      const fileInput = document.getElementById('fileInput');
+      if (!fileInput.files.length) { alert('请先选择 Excel 文件'); return; }
+      const fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      const btn = document.getElementById('btnImport');
+      btn.disabled = true;
+      btn.textContent = '导入中...';
+      try {
+        const r = await fetch('/api/import', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (!r.ok) { alert(data.error || '导入失败'); return; }
+        location.href = '/admin/sessions';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '导入';
+      }
     });
   </script>
 </body>

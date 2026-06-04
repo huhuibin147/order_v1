@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>会话列表</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    .session-card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin: 10px 0;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .session-card:active {
+      transform: scale(0.98);
+    }
+    .session-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+    }
+    .session-card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .session-card-code {
+      font-size: 12px;
+      color: var(--primary);
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+    .session-card-meta {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="appbar">
+      <div>
+        <h1>会话列表</h1>
+      </div>
+      <a class="btn btn-ghost btn-sm" href="/">返回首页</a>
+    </div>
+
+    <div id="content">加载中...</div>
+  </div>
+
+  <script>
+    async function init() {
+      const r = await fetch('/api/sessions');
+      const sessions = await r.json();
+      if (!sessions.length) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty"><span class="emoji">📋</span>暂无会话</div>';
+        return;
+      }
+      const html = sessions.map(s => {
+        const time = s.created_at.replace('T', ' ').slice(0, 16);
+        return `
+          <div class="session-card" onclick="location.href='/admin/${s.id}'">
+            <div class="session-card-head">
+              <div class="session-card-title">${s.title}</div>
+              <div class="session-card-code">${s.id}</div>
+            </div>
+            <div class="session-card-meta">${s.order_count} 份订单 · ${time}</div>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('content').innerHTML = html;
+    }
+    init();
+  </script>
+</body>
+</html>
