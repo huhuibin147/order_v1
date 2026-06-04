@@ -135,6 +135,7 @@ def api_add_order(session_id: str):
         return jsonify({"error": "session closed"}), 400
     body = request.get_json(silent=True) or {}
     user_name = (body.get("user_name") or "").strip()
+    dept = (body.get("dept") or "").strip()
     dish_id = body.get("dish_id")
     sauce_ids = body.get("sauce_ids") or []
     addon_ids = body.get("addon_ids") or []
@@ -161,6 +162,7 @@ def api_add_order(session_id: str):
         "id": uuid.uuid4().hex[:12],
         "session_id": session_id,
         "user_name": user_name,
+        "dept": dept,
         "user_no": user_no,
         "dish_id": dish_id,
         "base": base,
@@ -193,6 +195,22 @@ def api_list_sessions():
         orders = [ORDERS[oid] for oid in s["order_ids"] if oid in ORDERS]
         result.append({**s, "order_count": len(orders)})
     return jsonify(result)
+
+
+@app.delete("/api/session/<session_id>")
+def api_delete_session(session_id: str):
+    s = get_session_or_404(session_id)
+    for oid in s.get("order_ids", []):
+        ORDERS.pop(oid, None)
+    SESSIONS.pop(session_id, None)
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/sessions")
+def api_clear_sessions():
+    ORDERS.clear()
+    SESSIONS.clear()
+    return jsonify({"ok": True})
 
 
 @app.get("/api/export")
@@ -257,18 +275,38 @@ def api_export():
             nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
             ws.append([r["name"], r["count"], nos])
 
-        # 行高
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
-            ws.row_dimensions[row[0].row].height = 22
-
-        # 列宽自适应
+        # 列宽（先设列宽，再算行高）
         for col_cells in ws.columns:
             max_len = 0
             for cell in col_cells:
                 val = str(cell.value or "")
                 length = sum(2 if ord(c) > 127 else 1 for c in val)
                 max_len = max(max_len, length)
-            ws.column_dimensions[cell.column_letter].width = min(max_len + 4, 40)
+            col_letter = cell.column_letter
+            if col_letter == "C":
+                ws.column_dimensions[col_letter].width = 80
+            else:
+                ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+
+        # 行高 + 居中 + 边框
+        center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
+        wrap_align = openpyxl.styles.Alignment(horizontal="left", vertical="center", wrap_text=True)
+        thin = openpyxl.styles.Side(style="thin", color="999999")
+        all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
+        col_c_width = 80
+        chars_per_line = int(col_c_width / 1.5)  # ≈53
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+            row_idx = row[0].row
+            c_val = str(ws.cell(row=row_idx, column=3).value or "")
+            char_len = sum(2 if ord(c) > 127 else 1 for c in c_val)
+            lines = max(1, -(-char_len // chars_per_line))
+            ws.row_dimensions[row_idx].height = max(22, lines * 18)
+            for cell in row:
+                cell.alignment = wrap_align if cell.column == 3 else center_align
+                cell.border = all_border
+        # 确保最左侧边框完整
+        for r in range(1, ws.max_row + 1):
+            ws.cell(row=r, column=1).border = all_border
 
     buf = BytesIO()
     wb.save(buf)
@@ -298,17 +336,32 @@ def api_export_detail():
         if not orders:
             continue
 
-        # 从会话标题提取园区
+        # 从会话标题提取园区和日期
         area = session["title"].split(" - ")[-1] if " - " in session["title"] else ""
         title_prefix = session["title"].split(" - ")[0] if " - " in session["title"] else session["title"]
 
-        sheet_name = re.sub(r'[/\\[\]:*?]', '-', session["title"])[:31]
+        # 标题格式：三德科技团餐-2026/06/03
+        dm = re.search(r'(\d+)月(\d+)日', title_prefix)
+        if dm:
+            now = datetime.now()
+            date_str = f"{now.year}/{int(dm.group(1)):02d}/{int(dm.group(2)):02d}"
+        else:
+            date_str = title_prefix
+        excel_title = f"三德科技团餐-{date_str}"
+
+        sheet_name = area or excel_title
         ws = wb.create_sheet(title=sheet_name)
 
         # Row 1: 标题（合并单元格）
-        ws.append([session["title"], None, None, None, None, None, None])
+        ws.append([excel_title, None, None, None, None, None, None])
         ws.merge_cells("A1:G1")
         ws["A1"].font = openpyxl.styles.Font(bold=True, size=14)
+        ws["A1"].border = openpyxl.styles.Border(
+            left=openpyxl.styles.Side(style="thin", color="999999"),
+            right=openpyxl.styles.Side(style="thin", color="999999"),
+            top=openpyxl.styles.Side(style="thin", color="999999"),
+            bottom=openpyxl.styles.Side(style="thin", color="999999"),
+        )
         # Row 2: 表头（蓝色背景 + 四边框线）
         ws.append(["序号", "部门", "姓名", "餐品名称", "酱汁", "金额", "就餐园区"])
         header_fill = openpyxl.styles.PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
@@ -333,7 +386,7 @@ def api_export_detail():
             sauce_name = sauce_map.get(o["sauce_ids"][0], "") if o.get("sauce_ids") else ""
             ws.append([
                 o.get("seq", o["user_no"]),
-                "",
+                o.get("dept", ""),
                 o["user_name"],
                 dish_name,
                 sauce_name,
@@ -343,10 +396,10 @@ def api_export_detail():
             grand_total += o["unit_price"]
 
         # 汇总行 + 送餐门店
-        ws.append(["送餐门店：适绿轻食中电店", None, None, "合计/元", None, grand_total, None])
-        ws.append(["送餐人：", None, None, "签收人：", None, "时间：", None])
+        ws.append(["送餐门店：适绿轻食中电店", None, None, None, "合计/元", grand_total, None])
+        ws.append(["送餐人：", None, None, "签收人：", "时间", None, None])
 
-        # 最后两行合并：A:C, F:G（D/E 各自独立，保留签收人和时间）
+        # 合并单元格
         summary_row = ws.max_row - 1
         last_row = ws.max_row
         for r in (summary_row, last_row):
@@ -354,25 +407,30 @@ def api_export_detail():
             ws.merge_cells(f"F{r}:G{r}")
             ws.row_dimensions[r].height = 28
 
-        # 行高 + 对齐
+        # 行高 + 对齐 + 全表边框
         center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
         left_align = openpyxl.styles.Alignment(horizontal="left", vertical="center")
+        left_indent = openpyxl.styles.Alignment(horizontal="left", vertical="center", indent=2)
+        thin = openpyxl.styles.Side(style="thin", color="999999")
+        all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
+        left_only = openpyxl.styles.Border(left=thin)
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
             if row[0].row not in (summary_row, last_row):
                 ws.row_dimensions[row[0].row].height = 22
             for cell in row:
+                cell.border = all_border
                 if isinstance(cell, openpyxl.cell.cell.MergedCell):
                     continue
                 r, c = cell.row, cell.column
                 if r == summary_row:
-                    # 倒数第二行：全部居中
-                    cell.alignment = center_align
+                    cell.alignment = left_indent if c == 1 else center_align
                 elif r == last_row:
-                    # 最后一行：A-C居左，D/F居左（签收人/时间），G居左
-                    cell.alignment = left_align if c <= 3 or c in (4, 6, 7) else center_align
+                    cell.alignment = left_indent if c in (1, 4) else (left_align if c in (6, 7) else center_align)
                 else:
-                    # 数据行：最后一列(G)居左，其余居中
                     cell.alignment = left_align if c == 7 else center_align
+        # 确保最左侧边框完整
+        for r in range(1, ws.max_row + 1):
+            ws.cell(row=r, column=1).border = all_border
 
         # 列宽自适应（跳过合并单元格）
         for col_idx in range(1, 8):
@@ -506,7 +564,7 @@ def _create_session(title: str) -> tuple[str, list]:
     return sid, SESSIONS[sid]["import_warnings"]
 
 
-def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauce_cell: str, base: str, seq: int = 0):
+def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauce_cell: str, base: str, seq: int = 0, dept: str = ""):
     """解析并导入一条订单"""
     if not user_name or not dish_cell:
         return
@@ -538,6 +596,7 @@ def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauc
         "id": uuid.uuid4().hex[:12],
         "session_id": sid,
         "user_name": user_name,
+        "dept": dept,
         "user_no": user_no,
         "seq": seq,
         "dish_id": dish["id"],
@@ -586,8 +645,9 @@ def _import_v1_sheet(sheet_name: str, rows: list) -> dict:
         sauce_cell = str(row[4] or "").strip()
         if not user_name or not dish_cell:
             continue
+        dept = str(row[1] or "").strip()
         dish_name, base = _parse_dish_base(dish_cell)
-        _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, seq)
+        _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, seq, dept)
 
     return {"id": sid, "title": title, "warnings": len(warnings)}
 
@@ -619,7 +679,8 @@ def _import_v2_sheet(sheet_name: str, rows: list) -> list[dict]:
             dish_cell = str(row[3] or "").strip()
             base = str(row[4] or "").strip() if len(row) > 4 else ""
             sauce_cell = str(row[5] or "").strip() if len(row) > 5 else ""
-            _import_order(sid, warnings, user_name, dish_cell, sauce_cell, base, _parse_seq(row[0]) or 0)
+            dept = str(row[1] or "").strip()
+            _import_order(sid, warnings, user_name, dish_cell, sauce_cell, base, _parse_seq(row[0]) or 0, dept)
 
         results.append({"id": sid, "title": title, "warnings": len(warnings)})
 

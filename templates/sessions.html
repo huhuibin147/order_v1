@@ -39,6 +39,34 @@
       font-size: 12px;
       color: var(--text-light);
     }
+    .session-card-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .btn-del {
+      background: none;
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-del:active {
+      background: var(--danger);
+      color: #fff;
+    }
+    .btn-clear {
+      background: var(--danger);
+      color: #fff;
+      border: none;
+      font-size: 13px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -48,8 +76,8 @@
         <h1>会话列表</h1>
       </div>
       <div class="row">
-        <button class="btn btn-ghost btn-sm" id="btnExport">导出汇总</button>
-        <button class="btn btn-ghost btn-sm" id="btnExportDetail">导出明细</button>
+        <button class="btn btn-ghost btn-sm" id="btnExport">导出数据</button>
+        <button class="btn btn-ghost btn-sm" id="btnClear" style="color:var(--danger);">清空全部</button>
         <a class="btn btn-ghost btn-sm" href="/">首页</a>
       </div>
     </div>
@@ -69,18 +97,39 @@
       const html = sessions.map(s => {
         const time = s.created_at.replace('T', ' ').slice(0, 16);
         return `
-          <div class="session-card" onclick="location.href='/admin/${s.id}'">
-            <div class="session-card-head">
-              <div class="session-card-title">${s.title}</div>
-              <div class="session-card-code">${s.id}</div>
+          <div class="session-card">
+            <div onclick="location.href='/admin/${s.id}'" style="cursor:pointer;">
+              <div class="session-card-head">
+                <div class="session-card-title">${s.title}</div>
+                <div class="session-card-code">${s.id}</div>
+              </div>
+              <div class="session-card-meta">${s.order_count} 份订单 · ${time}</div>
             </div>
-            <div class="session-card-meta">${s.order_count} 份订单 · ${time}</div>
+            <div class="session-card-foot">
+              <div></div>
+              <button class="btn-del" data-sid="${s.id}">删除</button>
+            </div>
           </div>
         `;
       }).join('');
       document.getElementById('content').innerHTML = html;
+
+      document.querySelectorAll('.btn-del').forEach(el => {
+        el.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('确定删除这个会话？')) return;
+          const r = await fetch('/api/session/' + el.dataset.sid, { method: 'DELETE' });
+          if (r.ok) init();
+        });
+      });
     }
     init();
+
+    document.getElementById('btnClear').addEventListener('click', async () => {
+      if (!confirm('确定清空全部会话？此操作不可恢复！')) return;
+      const r = await fetch('/api/sessions', { method: 'DELETE' });
+      if (r.ok) init();
+    });
 
     async function downloadFile(url, filename) {
       const r = await fetch(url);
@@ -98,16 +147,10 @@
       const btn = document.getElementById('btnExport');
       btn.disabled = true;
       btn.textContent = '导出中...';
-      try { await downloadFile('/api/export', '统计汇总.xlsx'); }
-      finally { btn.disabled = false; btn.textContent = '导出汇总'; }
-    });
-
-    document.getElementById('btnExportDetail').addEventListener('click', async () => {
-      const btn = document.getElementById('btnExportDetail');
-      btn.disabled = true;
-      btn.textContent = '导出中...';
-      try { await downloadFile('/api/export/detail', '明细统计.xlsx'); }
-      finally { btn.disabled = false; btn.textContent = '导出明细'; }
+      try {
+        await downloadFile('/api/export', '统计汇总.xlsx');
+        await downloadFile('/api/export/detail', '明细统计.xlsx');
+      } finally { btn.disabled = false; btn.textContent = '导出'; }
     });
   </script>
 </body>

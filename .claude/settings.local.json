@@ -6,7 +6,13 @@
       "Bash(python3 *)",
       "Bash(curl -s -X POST http://127.0.0.1:35001/api/import -F file=@/mnt/c/Users/huhui/Downloads/2026年6月3日减脂餐订餐统计表.xls)",
       "Bash(curl -s http://127.0.0.1:35001/api/sessions)",
-      "Bash(curl -s http://127.0.0.1:35001/api/sessions/P46GFZ)"
+      "Bash(curl -s http://127.0.0.1:35001/api/sessions/P46GFZ)",
+      "Bash(curl -s http://127.0.0.1:35001/api/session/KBQKXW)",
+      "Bash(curl -s -o /tmp/detail.xlsx http://127.0.0.1:35001/api/export/detail)",
+      "Bash(curl -s -X DELETE http://127.0.0.1:35001/api/sessions)",
+      "Bash(curl -s -o /tmp/summary.xlsx http://127.0.0.1:35001/api/export)",
+      "Bash(curl -s -o /tmp/summary2.xlsx http://127.0.0.1:35001/api/export)",
+      "Bash(curl -s -o /tmp/summary3.xlsx http://127.0.0.1:35001/api/export)"
     ]
   }
 }

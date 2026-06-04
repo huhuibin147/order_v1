@@ -389,6 +389,17 @@ label {
   font-weight: 600;
 }
 
+.user-dept {
+  display: inline-block;
+  background: #ecf0f1;
+  color: var(--text-light);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  font-weight: 400;
+}
+
 .summary-group-header .total {
   color: var(--primary);
   font-weight: 600;

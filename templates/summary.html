@@ -95,7 +95,7 @@
         return `
           <div class="card summary-group">
             <div class="summary-group-header">
-              <h4><span class="user-no">${userNo}号</span>${name}</h4>
+              <h4><span class="user-no">${userNo}号</span>${name}${items[0].dept ? '<span class="user-dept">' + items[0].dept + '</span>' : ''}</h4>
               <div class="total">¥${groupTotal.toFixed(2)} · ${items.length} 份</div>
             </div>
             ${itemsHtml}
