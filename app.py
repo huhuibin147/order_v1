@@ -135,6 +135,9 @@ def api_add_order(session_id: str):
     dish = next((d for d in MENU["dishes"] if d["id"] == dish_id), None)
     if not dish:
         return jsonify({"error": "dish not found"}), 400
+    if dish.get("sauce_mode") == "single_required":
+        if not isinstance(sauce_ids, list) or len(sauce_ids) != 1:
+            return jsonify({"error": "sauce required (pick exactly 1)"}), 400
     unit_price = calc_unit_price(dish, sauce_ids, addon_ids)
     # 分配用户序号：按首次出现的昵称顺序
     if user_name not in s["user_names"]:

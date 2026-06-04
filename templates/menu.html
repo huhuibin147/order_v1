@@ -46,7 +46,7 @@
       <div class="modal-sub" id="modalDishDesc"></div>
 
       <div class="option-group" id="sauceGroup" style="display:none;">
-        <div class="option-group-title">选酱料（可多选 / 不选）</div>
+        <div class="option-group-title" id="sauceTitle">选酱料（可多选 / 不选）</div>
         <div class="options" id="sauceOptions"></div>
       </div>
 
@@ -168,21 +168,41 @@
       // 酱料
       const sauces = currentDish.sauce_ids.map(id => MENU.sauces.find(s => s.id === id)).filter(Boolean);
       const sauceGroup = document.getElementById('sauceGroup');
+      const sauceTitle = document.getElementById('sauceTitle');
+      const singleRequired = currentDish.sauce_mode === 'single_required';
       if (sauces.length) {
         sauceGroup.style.display = 'block';
+        sauceTitle.textContent = singleRequired
+          ? `选酱料（${sauces.length}选1）`
+          : '选酱料（可多选 / 不选）';
+        sauceTitle.classList.toggle('required', singleRequired);
         document.getElementById('sauceOptions').innerHTML = sauces.map(s =>
           `<div class="option" data-sauce="${s.id}">${s.name}${s.price ? `<span class="extra">+¥${s.price}</span>` : ''}</div>`
         ).join('');
         document.getElementById('sauceOptions').querySelectorAll('[data-sauce]').forEach(el => {
           el.addEventListener('click', () => {
             const id = el.dataset.sauce;
-            if (selectedSauces.has(id)) {
-              selectedSauces.delete(id);
-              el.classList.remove('selected');
+            if (singleRequired) {
+              if (selectedSauces.has(id)) {
+                selectedSauces.delete(id);
+                el.classList.remove('selected');
+              } else {
+                // 单选：清掉其他再选这个
+                document.querySelectorAll('#sauceOptions .option').forEach(o => o.classList.remove('selected'));
+                selectedSauces.clear();
+                selectedSauces.add(id);
+                el.classList.add('selected');
+              }
             } else {
-              selectedSauces.add(id);
-              el.classList.add('selected');
+              if (selectedSauces.has(id)) {
+                selectedSauces.delete(id);
+                el.classList.remove('selected');
+              } else {
+                selectedSauces.add(id);
+                el.classList.add('selected');
+              }
             }
+            updateConfirmState();
           });
         });
       } else {
@@ -213,7 +233,19 @@
         addonGroup.style.display = 'none';
       }
 
+      updateConfirmState();
       document.getElementById('modalMask').classList.add('show');
+    }
+
+    function updateConfirmState() {
+      const btn = document.getElementById('btnConfirm');
+      if (currentDish && currentDish.sauce_mode === 'single_required' && selectedSauces.size === 0) {
+        btn.disabled = true;
+        btn.textContent = '请先选酱料';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '加入我的清单';
+      }
     }
 
     function closeModal() {
@@ -231,6 +263,10 @@
       if (!userName) {
         alert('请先填写昵称');
         document.getElementById('userName').focus();
+        return;
+      }
+      if (currentDish.sauce_mode === 'single_required' && selectedSauces.size === 0) {
+        alert('请先选一种酱料');
         return;
       }
       const note = document.getElementById('note').value.trim();

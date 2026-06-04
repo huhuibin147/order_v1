@@ -113,6 +113,15 @@ button {
   transform: scale(0.98);
 }
 
+.btn:disabled {
+  background: #ccc;
+  color: #fff;
+  cursor: not-allowed;
+}
+.btn:disabled:hover {
+  background: #ccc;
+}
+
 .btn-secondary {
   background: #fff;
   color: var(--primary);
@@ -278,6 +287,10 @@ label {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
+}
+.option-group-title.required::after {
+  content: " *";
+  color: var(--danger, #e53935);
 }
 
 .options {
