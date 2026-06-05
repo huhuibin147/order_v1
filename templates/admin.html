@@ -214,7 +214,7 @@
       <div class="row">
         <a class="btn btn-ghost btn-sm" href="{{ url_for('page_summary', session_id=session_id) }}">按人汇总</a>
         <a class="btn btn-ghost btn-sm" href="{{ url_for('page_menu', session_id=session_id) }}">点单页</a>
-        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_sessions') }}">会话列表</a>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('page_sessions') }}">订单列表</a>
         <a class="btn btn-ghost btn-sm" href="{{ url_for('page_index') }}">首页</a>
       </div>
     </div>
@@ -360,7 +360,7 @@
         });
         const specsHtml = Object.values(bySpec).map(({ sample, owners }) => {
           const ownersHtml = owners.map(o =>
-            `<span class="pill"><span class="no">${o.user_no}号</span>${o.user_name}</span>`
+            `<span class="pill"><span class="no">${o.seq || o.user_no}号</span>${o.user_name}</span>`
           ).join('');
           return `
             <div class="admin-spec">
@@ -410,12 +410,13 @@
         map[key].userNos.add(userNo);
       }
       session.orders.forEach(o => {
-        bump('dish:' + o.dish_id + ':' + (o.base || ''), displayName(o), '主食', o.user_no);
+        const no = o.seq || o.user_no;
+        bump('dish:' + o.dish_id + ':' + (o.base || ''), displayName(o), '主食', no);
         (o.sauce_ids || []).forEach(sid => {
-          bump('sauce:' + sid, sauceName(sid), '酱料', o.user_no);
+          bump('sauce:' + sid, sauceName(sid), '酱料', no);
         });
         (o.addon_ids || []).forEach(aid => {
-          bump('addon:' + aid, addonName(aid), '附加品', o.user_no);
+          bump('addon:' + aid, addonName(aid), '附加品', no);
         });
       });
 

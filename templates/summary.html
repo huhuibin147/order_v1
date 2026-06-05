@@ -69,10 +69,10 @@
 
       const grandTotal = session.orders.reduce((s, o) => s + o.unit_price, 0);
 
-      const sortedGroups = Object.entries(groups).sort((a, b) => a[1][0].user_no - b[1][0].user_no);
+      const sortedGroups = Object.entries(groups).sort((a, b) => (a[1][0].seq || a[1][0].user_no) - (b[1][0].seq || b[1][0].user_no));
       const html = sortedGroups.map(([name, items]) => {
         const groupTotal = items.reduce((s, o) => s + o.unit_price, 0);
-        const userNo = items[0].user_no;  // 同人序号相同，取第一条
+        const userNo = items[0].seq || items[0].user_no;
         const itemsHtml = items.map(o => {
           const detail = [];
           if (o.sauce_ids && o.sauce_ids.length) {

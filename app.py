@@ -173,12 +173,16 @@ def api_add_order(session_id: str):
     if user_name not in s["user_names"]:
         s["user_names"].append(user_name)
     user_no = s["user_names"].index(user_name) + 1
+    # seq：取当前会话最大 seq + 1
+    existing_seqs = [ORDERS[oid].get("seq", 0) for oid in s["order_ids"] if oid in ORDERS]
+    next_seq = max(existing_seqs, default=0) + 1
     order = {
         "id": uuid.uuid4().hex[:12],
         "session_id": session_id,
         "user_name": user_name,
         "dept": dept,
         "user_no": user_no,
+        "seq": next_seq,
         "dish_id": dish_id,
         "base": base,
         "sauce_ids": sauce_ids,
@@ -228,9 +232,19 @@ def api_clear_sessions():
     return jsonify({"ok": True})
 
 
+def _filter_sessions():
+    """根据请求参数 ids 过滤会话，未传则返回全部"""
+    ids = request.args.get("ids", "")
+    if ids:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()]
+        return {sid: s for sid, s in SESSIONS.items() if sid in id_list}
+    return dict(SESSIONS)
+
+
 @app.get("/api/export")
 def api_export():
-    if not SESSIONS:
+    sessions = _filter_sessions()
+    if not sessions:
         return jsonify({"error": "没有可导出的会话"}), 400
 
     wb = openpyxl.Workbook()
@@ -238,7 +252,7 @@ def api_export():
 
     sauce_map = {s["id"]: s["name"] for s in MENU["sauces"]}
 
-    for sid, session in SESSIONS.items():
+    for sid, session in sessions.items():
         orders = [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS]
         if not orders:
             continue
@@ -246,18 +260,19 @@ def api_export():
         # 聚合：与 admin 页面 renderItems 逻辑一致
         map = {}
 
-        def bump(key, name, tag, user_no):
+        def bump(key, name, tag, no):
             if key not in map:
                 map[key] = {"name": name, "tag": tag, "count": 0, "user_nos": set()}
             map[key]["count"] += 1
-            map[key]["user_nos"].add(user_no)
+            map[key]["user_nos"].add(no)
 
         for o in orders:
             d = next((x for x in MENU["dishes"] if x["id"] == o["dish_id"]), {})
             display = d.get("name", "?") + (f"（{o['base']}）" if o.get("base") else "")
-            bump("dish:" + o["dish_id"] + ":" + (o.get("base") or ""), display, "主食", o["user_no"])
+            no = o.get("seq", o["user_no"])
+            bump("dish:" + o["dish_id"] + ":" + (o.get("base") or ""), display, "主食", no)
             for sid_s in o.get("sauce_ids", []):
-                bump("sauce:" + sid_s, sauce_map.get(sid_s, "?"), "酱料", o["user_no"])
+                bump("sauce:" + sid_s, sauce_map.get(sid_s, "?"), "酱料", no)
 
         dish_rows = sorted(
             [r for r in map.values() if r["tag"] == "主食"],
@@ -337,7 +352,8 @@ def api_export():
 @app.get("/api/export/detail")
 def api_export_detail():
     """导出明细表，格式与导入的原始 Excel 一致"""
-    if not SESSIONS:
+    sessions = _filter_sessions()
+    if not sessions:
         return jsonify({"error": "没有可导出的会话"}), 400
 
     wb = openpyxl.Workbook()
@@ -346,8 +362,11 @@ def api_export_detail():
     sauce_map = {s["id"]: s["name"] for s in MENU["sauces"]}
     dish_map = {d["id"]: d for d in MENU["dishes"]}
 
-    for sid, session in SESSIONS.items():
-        orders = [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS]
+    for sid, session in sessions.items():
+        orders = sorted(
+            [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS],
+            key=lambda o: o.get("seq", o.get("user_no", 0)),
+        )
         if not orders:
             continue
 
@@ -639,9 +658,12 @@ def _parse_seq(val) -> int | None:
     if isinstance(val, (int, float)):
         return int(val) if val else None
     s = str(val).strip()
-    if s.isdigit():
-        return int(s)
-    return None
+    if not s:
+        return None
+    try:
+        return int(float(s))
+    except (ValueError, OverflowError):
+        return None
 
 
 def _import_v1_sheet(sheet_name: str, rows: list) -> dict:

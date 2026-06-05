@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>会话列表</title>
+  <title>订单列表</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <style>
     .session-card {
@@ -67,18 +67,72 @@
       border-radius: 8px;
       cursor: pointer;
     }
+    .session-card .cb {
+      display: none;
+      width: 20px;
+      height: 20px;
+      accent-color: var(--primary);
+      flex-shrink: 0;
+      margin-right: 10px;
+    }
+    body.select-mode .session-card .cb {
+      display: block;
+    }
+    .session-card.select-head {
+      display: flex;
+      align-items: center;
+    }
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 16px rgba(0,0,0,.15);
+      min-width: 120px;
+      z-index: 10;
+      overflow: hidden;
+    }
+    .dropdown-menu.show {
+      display: block;
+    }
+    .dropdown-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .dropdown-menu button:active {
+      background: var(--primary-bg);
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="appbar">
       <div>
-        <h1>会话列表</h1>
+        <h1>订单列表</h1>
       </div>
       <div class="row">
-        <button class="btn btn-ghost btn-sm" id="btnExportSummary">导出汇总</button>
-        <button class="btn btn-ghost btn-sm" id="btnExportDetail">导出明细</button>
-        <button class="btn btn-ghost btn-sm" id="btnClear" style="color:var(--danger);">清空全部</button>
+        <button class="btn btn-ghost btn-sm" id="btnSelect">选择</button>
+        <div class="dropdown">
+          <button class="btn btn-ghost btn-sm" id="btnExport">导出</button>
+          <div class="dropdown-menu" id="exportMenu">
+            <button id="btnExportSummary">导出汇总</button>
+            <button id="btnExportDetail">导出明细</button>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btnClear" style="color:var(--danger);">清空</button>
         <a class="btn btn-ghost btn-sm" href="{{ url_for('page_index') }}">首页</a>
       </div>
     </div>
@@ -88,6 +142,19 @@
 
   <script>
     const BASE = '{{ request.script_root }}';
+    let selectMode = false;
+    const selected = new Set();
+
+    function getSelectedIds() {
+      return [...document.querySelectorAll('.cb:checked')].map(cb => cb.dataset.sid);
+    }
+
+    function updateExportBtns() {
+      const ids = getSelectedIds();
+      const n = ids.length;
+      document.getElementById('btnExport').textContent = n > 0 ? `导出(${n})` : '导出';
+    }
+
     async function init() {
       const r = await fetch(BASE + '/api/sessions');
       const sessions = await r.json();
@@ -99,15 +166,18 @@
       const html = sessions.map(s => {
         const time = s.created_at.replace('T', ' ').slice(0, 16);
         return `
-          <div class="session-card" data-sid="${s.id}">
-            <div class="session-card-head">
-              <div class="session-card-title">${s.title}</div>
-              <div class="session-card-code">${s.id}</div>
-            </div>
-            <div class="session-card-meta">${s.order_count} 份订单 · ${time}</div>
-            <div class="session-card-foot">
-              <div></div>
-              <button class="btn-del" data-del="${s.id}">删除</button>
+          <div class="session-card select-head" data-sid="${s.id}">
+            <input type="checkbox" class="cb" data-sid="${s.id}">
+            <div style="flex:1;">
+              <div class="session-card-head">
+                <div class="session-card-title">${s.title}</div>
+                <div class="session-card-code">${s.id}</div>
+              </div>
+              <div class="session-card-meta">${s.order_count} 份订单 · ${time}</div>
+              <div class="session-card-foot">
+                <div></div>
+                <button class="btn-del" data-del="${s.id}">删除</button>
+              </div>
             </div>
           </div>
         `;
@@ -125,10 +195,48 @@
           return;
         }
         const card = e.target.closest('.session-card');
-        if (card) location.href = BASE + '/admin/' + card.dataset.sid;
+        if (!card) return;
+        if (selectMode) {
+          if (e.target.classList.contains('cb')) {
+            updateExportBtns();
+            return;
+          }
+          const cb = card.querySelector('.cb');
+          cb.checked = !cb.checked;
+          updateExportBtns();
+        } else {
+          location.href = BASE + '/admin/' + card.dataset.sid;
+        }
       });
+
+      document.getElementById('content').addEventListener('change', (e) => {
+        if (e.target.classList.contains('cb')) updateExportBtns();
+      });
+
+      updateExportBtns();
     }
     init();
+
+    document.getElementById('btnSelect').addEventListener('click', () => {
+      selectMode = !selectMode;
+      document.body.classList.toggle('select-mode', selectMode);
+      document.getElementById('btnSelect').textContent = selectMode ? '取消' : '选择';
+      if (!selectMode) {
+        document.querySelectorAll('.cb').forEach(cb => cb.checked = false);
+        updateExportBtns();
+      }
+    });
+
+    const exportBtn = document.getElementById('btnExport');
+    const exportMenu = document.getElementById('exportMenu');
+    exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportMenu.classList.toggle('show');
+    });
+    document.addEventListener('click', () => exportMenu.classList.remove('show'));
+    exportMenu.addEventListener('click', (e) => {
+      if (e.target.tagName === 'BUTTON') exportMenu.classList.remove('show');
+    });
 
     document.getElementById('btnClear').addEventListener('click', async () => {
       if (!confirm('确定清空全部会话？此操作不可恢复！')) return;
@@ -149,19 +257,23 @@
     }
 
     document.getElementById('btnExportSummary').addEventListener('click', async () => {
-      const btn = document.getElementById('btnExportSummary');
+      const ids = getSelectedIds();
+      const qs = ids.length ? '?ids=' + ids.join(',') : '';
+      const btn = document.getElementById('btnExport');
       btn.disabled = true;
-      btn.textContent = '导出中...';
-      try { await downloadFile('/api/export', '统计汇总.xlsx'); }
-      finally { btn.disabled = false; btn.textContent = '导出汇总'; }
+      btn.textContent = '汇总导出中...';
+      try { await downloadFile('/api/export' + qs, '统计汇总.xlsx'); }
+      finally { btn.disabled = false; updateExportBtns(); }
     });
 
     document.getElementById('btnExportDetail').addEventListener('click', async () => {
-      const btn = document.getElementById('btnExportDetail');
+      const ids = getSelectedIds();
+      const qs = ids.length ? '?ids=' + ids.join(',') : '';
+      const btn = document.getElementById('btnExport');
       btn.disabled = true;
-      btn.textContent = '导出中...';
-      try { await downloadFile('/api/export/detail', '明细统计.xlsx'); }
-      finally { btn.disabled = false; btn.textContent = '导出明细'; }
+      btn.textContent = '明细导出中...';
+      try { await downloadFile('/api/export/detail' + qs, '明细统计.xlsx'); }
+      finally { btn.disabled = false; updateExportBtns(); }
     });
   </script>
 </body>

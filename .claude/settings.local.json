@@ -15,7 +15,12 @@
       "Bash(curl -s -o /tmp/summary3.xlsx http://127.0.0.1:35001/api/export)",
       "Bash(chmod +x *)",
       "Bash(sudo apt-get install -y sshpass rsync)",
-      "Bash(curl -s https://interbot.cn/slqs/order/)"
+      "Bash(curl -s https://interbot.cn/slqs/order/)",
+      "Bash(pip list *)",
+      "Bash(pip show *)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python *)"
     ]
   }
 }
