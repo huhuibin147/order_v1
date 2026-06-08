@@ -20,7 +20,8 @@
       "Bash(pip show *)",
       "Bash(.venv/bin/pip show *)",
       "Bash(.venv/bin/pip install *)",
-      "Bash(.venv/bin/python *)"
+      "Bash(.venv/bin/python *)",
+      "Bash(/Users/huhuibin/code/aiproj/order_v1/.venv/bin/python *)"
     ]
   }
 }
