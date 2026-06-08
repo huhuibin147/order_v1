@@ -321,7 +321,7 @@
           return `<div class="w-item">${typeLabel}：${g.original}<span class="w-arrow">&gt;</span><span class="w-unmatched">未匹配</span>${userStr}</div>`;
         }
       }).join('');
-      el.innerHTML = `<div class="import-warnings"><div class="import-warnings-title">导入匹配说明</div>${lines}</div>`;
+      el.innerHTML = `<div class="import-warnings"><div class="import-warnings-title">程序自动匹配结果，请确认</div>${lines}</div>`;
     }
 
     function render() {
