@@ -28,3 +28,6 @@ htmlcov/
 deploy/config.yaml
 app.log
 app.pid
+
+# Test data
+testfile/

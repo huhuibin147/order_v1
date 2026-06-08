@@ -3,6 +3,7 @@
 对应设计文档：DESIGN.md
 """
 import json
+import os
 import re
 import secrets
 import string
@@ -307,38 +308,41 @@ def api_export():
             nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
             ws.append([r["name"], r["count"], nos])
 
-        # 列宽（先设列宽，再算行高）
-        for col_cells in ws.columns:
-            max_len = 0
-            for cell in col_cells:
-                val = str(cell.value or "")
-                length = sum(2 if ord(c) > 127 else 1 for c in val)
-                max_len = max(max_len, length)
-            col_letter = cell.column_letter
-            if col_letter == "C":
-                ws.column_dimensions[col_letter].width = 80
-            else:
-                ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+        # 合计行
+        total_count = sum(r["count"] for r in dish_rows) + sum(r["count"] for r in sauce_rows)
+        ws.append(["合计", total_count, ""])
 
-        # 行高 + 居中 + 边框
+        # 动态列宽：中文字符占2宽度，英文/数字占1宽度
+        def _char_width(c):
+            return 2 if ord(c) > 127 else 1
+        def _val_width(val):
+            return sum(_char_width(c) for c in str(val or ""))
+        max_a = max(_val_width(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1))
+        max_b = max(_val_width(ws.cell(row=r, column=2).value) for r in range(1, ws.max_row + 1))
+        max_c = max(_val_width(ws.cell(row=r, column=3).value) for r in range(1, ws.max_row + 1))
+        ws.column_dimensions["A"].width = max_a + 4
+        ws.column_dimensions["B"].width = max_b + 7
+        ws.column_dimensions["C"].width = 40
+
+        # 行高 + 居中 + 边框 + 隔行灰色
         center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
-        wrap_align = openpyxl.styles.Alignment(horizontal="left", vertical="center", wrap_text=True)
+        wrap_align = openpyxl.styles.Alignment(horizontal="center", vertical="center", wrap_text=True)
         thin = openpyxl.styles.Side(style="thin", color="999999")
         all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
-        col_c_width = 80
-        chars_per_line = int(col_c_width / 1.5)  # ≈53
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+        gray_fill = openpyxl.styles.PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        col_c_width = ws.column_dimensions["C"].width
+        chars_per_line = int(col_c_width)
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=3):
             row_idx = row[0].row
             c_val = str(ws.cell(row=row_idx, column=3).value or "")
-            char_len = sum(2 if ord(c) > 127 else 1 for c in c_val)
+            char_len = _val_width(c_val)
             lines = max(1, -(-char_len // chars_per_line))
             ws.row_dimensions[row_idx].height = max(22, lines * 18)
             for cell in row:
                 cell.alignment = wrap_align if cell.column == 3 else center_align
                 cell.border = all_border
-        # 确保最左侧边框完整
-        for r in range(1, ws.max_row + 1):
-            ws.cell(row=r, column=1).border = all_border
+                if row_idx > 1 and row_idx % 2 == 0:
+                    cell.fill = gray_fill
 
     buf = BytesIO()
     wb.save(buf)
@@ -843,6 +847,100 @@ def api_import_excel():
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": str(e.description)}), 404
+
+
+def _import_file(filepath: str):
+    """从文件路径导入 Excel，复用与 /api/import 相同的逻辑"""
+    filename = os.path.basename(filepath).lower()
+    with open(filepath, "rb") as f:
+        if filename.endswith(".xls"):
+            wb = xlrd.open_workbook(file_contents=f.read())
+            sheets = []
+            for name in wb.sheet_names():
+                ws = wb.sheet_by_name(name)
+                rows = []
+                for i in range(ws.nrows):
+                    rows.append([ws.cell_value(i, j) for j in range(ws.ncols)])
+                sheets.append((name, rows))
+        else:
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            sheets = []
+            for name in wb.sheetnames:
+                ws = wb[name]
+                sheets.append((name, list(ws.iter_rows(min_row=1, values_only=True))))
+
+    candidates = []
+    for sheet_name, rows in sheets:
+        if len(rows) < 3:
+            continue
+        if "菜单" in sheet_name:
+            continue
+        headers = rows[1]
+        if not (len(headers) >= 5 and "序号" in str(headers[0])):
+            continue
+        candidates.append((sheet_name, rows))
+
+    if not candidates:
+        return
+
+    def _score(item):
+        name, rows = item
+        return (_sheet_menu_score(rows), *_sheet_date(name))
+
+    best_name, best_rows = max(candidates, key=_score)
+    headers = best_rows[1]
+    fmt = _detect_format(headers)
+    if fmt == "v2":
+        created = _import_v2_sheet(best_name, best_rows)
+    else:
+        created = [_import_v1_sheet(best_name, best_rows)]
+
+    if not created:
+        return
+
+    all_orders = []
+    for item in created:
+        s = SESSIONS[item["id"]]
+        for oid in s["order_ids"]:
+            all_orders.append(ORDERS[oid])
+
+    if all_orders:
+        first_title = created[0]["title"]
+        prefix = first_title.rsplit(" - ", 1)[0] if " - " in first_title else first_title
+        all_titles = " ".join(item["title"] for item in created)
+        company = "三德科技 " if ("麓谷" in all_titles or "长兴" in all_titles) else ""
+        summary_title = prefix + " - " + company + "汇总"
+        sid, _ = _create_session(summary_title)
+        for o in all_orders:
+            orig_session = SESSIONS.get(o["session_id"])
+            orig_title = orig_session["title"] if orig_session else ""
+            orig_area = orig_title.split(" - ")[-1] if " - " in orig_title else ""
+            new_order = {**o, "id": uuid.uuid4().hex[:12], "session_id": sid, "area": orig_area}
+            ORDERS[new_order["id"]] = new_order
+            SESSIONS[sid]["order_ids"].append(new_order["id"])
+            if new_order["user_name"] not in SESSIONS[sid]["user_names"]:
+                SESSIONS[sid]["user_names"].append(new_order["user_name"])
+
+    print(f"  [auto-import] {os.path.basename(filepath)} -> {len(created)} 个会话")
+
+
+def _auto_import_testfiles():
+    """启动时自动导入 testfile 目录下的 Excel 文件"""
+    testfile_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testfile")
+    if not os.path.isdir(testfile_dir):
+        return
+    files = sorted(f for f in os.listdir(testfile_dir) if f.endswith((".xls", ".xlsx")))
+    if not files:
+        return
+    print(f"=== 自动导入 {len(files)} 个测试文件 ===")
+    for f in files:
+        try:
+            _import_file(os.path.join(testfile_dir, f))
+        except Exception as e:
+            print(f"  [auto-import] {f} 导入失败: {e}")
+
+
+_auto_import_testfiles()
 
 
 if __name__ == "__main__":
