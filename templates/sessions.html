@@ -115,6 +115,24 @@
     .dropdown-menu button:active {
       background: var(--primary-bg);
     }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 8px 0;
+    }
+    .tab {
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .tab.active {
+      background: var(--primary);
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -137,13 +155,18 @@
       </div>
     </div>
 
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-tab="summary">汇总</div>
+      <div class="tab" data-tab="area">园区</div>
+    </div>
     <div id="content">加载中...</div>
   </div>
 
   <script>
     const BASE = '{{ request.script_root }}';
     let selectMode = false;
-    const selected = new Set();
+    let currentTab = 'summary';
+    let allSessions = [];
 
     function getSelectedIds() {
       return [...document.querySelectorAll('.cb:checked')].map(cb => cb.dataset.sid);
@@ -155,12 +178,18 @@
       document.getElementById('btnExport').textContent = n > 0 ? `导出(${n})` : '导出';
     }
 
-    async function init() {
-      const r = await fetch(BASE + '/api/sessions');
-      const sessions = await r.json();
+    function filterSessions() {
+      if (currentTab === 'summary') {
+        return allSessions.filter(s => s.title.endsWith('汇总'));
+      }
+      return allSessions.filter(s => !s.title.endsWith('汇总'));
+    }
+
+    function render() {
+      const sessions = filterSessions();
       if (!sessions.length) {
         document.getElementById('content').innerHTML =
-          '<div class="empty"><span class="emoji">📋</span>暂无会话</div>';
+          '<div class="empty"><span class="emoji">📋</span>暂无订单</div>';
         return;
       }
       const html = sessions.map(s => {
@@ -183,39 +212,53 @@
         `;
       }).join('');
       document.getElementById('content').innerHTML = html;
-
-      document.getElementById('content').addEventListener('click', async (e) => {
-        const del = e.target.closest('[data-del]');
-        if (del) {
-          e.stopPropagation();
-          e.preventDefault();
-          if (!confirm('确定删除这个会话？')) return;
-          const r = await fetch(BASE + '/api/session/' + del.dataset.del, { method: 'DELETE' });
-          if (r.ok) init();
-          return;
-        }
-        const card = e.target.closest('.session-card');
-        if (!card) return;
-        if (selectMode) {
-          if (e.target.classList.contains('cb')) {
-            updateExportBtns();
-            return;
-          }
-          const cb = card.querySelector('.cb');
-          cb.checked = !cb.checked;
-          updateExportBtns();
-        } else {
-          location.href = BASE + '/admin/' + card.dataset.sid;
-        }
-      });
-
-      document.getElementById('content').addEventListener('change', (e) => {
-        if (e.target.classList.contains('cb')) updateExportBtns();
-      });
-
       updateExportBtns();
     }
+
+    document.getElementById('content').addEventListener('click', async (e) => {
+      const del = e.target.closest('[data-del]');
+      if (del) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!confirm('确定删除这个会话？')) return;
+        const r = await fetch(BASE + '/api/session/' + del.dataset.del, { method: 'DELETE' });
+        if (r.ok) init();
+        return;
+      }
+      const card = e.target.closest('.session-card');
+      if (!card) return;
+      if (selectMode) {
+        if (e.target.classList.contains('cb')) {
+          updateExportBtns();
+          return;
+        }
+        const cb = card.querySelector('.cb');
+        cb.checked = !cb.checked;
+        updateExportBtns();
+      } else {
+        location.href = BASE + '/admin/' + card.dataset.sid;
+      }
+    });
+
+    document.getElementById('content').addEventListener('change', (e) => {
+      if (e.target.classList.contains('cb')) updateExportBtns();
+    });
+
+    async function init() {
+      const r = await fetch(BASE + '/api/sessions');
+      allSessions = await r.json();
+      render();
+    }
     init();
+
+    document.getElementById('tabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab || tab.classList.contains('active')) return;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentTab = tab.dataset.tab;
+      render();
+    });
 
     document.getElementById('btnSelect').addEventListener('click', () => {
       selectMode = !selectMode;
@@ -259,21 +302,13 @@
     document.getElementById('btnExportSummary').addEventListener('click', async () => {
       const ids = getSelectedIds();
       const qs = ids.length ? '?ids=' + ids.join(',') : '';
-      const btn = document.getElementById('btnExport');
-      btn.disabled = true;
-      btn.textContent = '汇总导出中...';
-      try { await downloadFile('/api/export' + qs, '统计汇总.xlsx'); }
-      finally { btn.disabled = false; updateExportBtns(); }
+      await downloadFile('/api/export' + qs, '统计汇总.xlsx');
     });
 
     document.getElementById('btnExportDetail').addEventListener('click', async () => {
       const ids = getSelectedIds();
       const qs = ids.length ? '?ids=' + ids.join(',') : '';
-      const btn = document.getElementById('btnExport');
-      btn.disabled = true;
-      btn.textContent = '明细导出中...';
-      try { await downloadFile('/api/export/detail' + qs, '明细统计.xlsx'); }
-      finally { btn.disabled = false; updateExportBtns(); }
+      await downloadFile('/api/export/detail' + qs, '明细统计.xlsx');
     });
   </script>
 </body>

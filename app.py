@@ -252,7 +252,9 @@ def api_export():
 
     sauce_map = {s["id"]: s["name"] for s in MENU["sauces"]}
 
-    for sid, session in sessions.items():
+    # 汇总会话排最前
+    sorted_sessions = sorted(sessions.items(), key=lambda x: ("汇总" not in x[1]["title"], x[1]["title"]))
+    for sid, session in sorted_sessions:
         orders = [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS]
         if not orders:
             continue
@@ -425,7 +427,7 @@ def api_export_detail():
                 dish_name,
                 sauce_name,
                 o["unit_price"],
-                area,
+                o.get("area", area),
             ])
             grand_total += o["unit_price"]
 
@@ -806,6 +808,34 @@ def api_import_excel():
 
     if not created:
         return jsonify({"error": "未解析到有效数据"}), 400
+
+    # 创建汇总会话：合并本次导入的所有订单
+    all_orders = []
+    for item in created:
+        s = SESSIONS[item["id"]]
+        for oid in s["order_ids"]:
+            all_orders.append(ORDERS[oid])
+
+    if all_orders:
+        # 取已创建会话标题的前缀，拼接"汇总"
+        first_title = created[0]["title"]
+        prefix = first_title.rsplit(" - ", 1)[0] if " - " in first_title else first_title
+        # 匹配麓谷或长兴时加公司名
+        all_titles = " ".join(item["title"] for item in created)
+        company = "三德科技 " if ("麓谷" in all_titles or "长兴" in all_titles) else ""
+        summary_title = prefix + " - " + company + "汇总"
+        sid, _ = _create_session(summary_title)
+        for o in all_orders:
+            # 从原会话标题提取园区，写入订单
+            orig_session = SESSIONS.get(o["session_id"])
+            orig_title = orig_session["title"] if orig_session else ""
+            orig_area = orig_title.split(" - ")[-1] if " - " in orig_title else ""
+            new_order = {**o, "id": uuid.uuid4().hex[:12], "session_id": sid, "area": orig_area}
+            ORDERS[new_order["id"]] = new_order
+            SESSIONS[sid]["order_ids"].append(new_order["id"])
+            if new_order["user_name"] not in SESSIONS[sid]["user_names"]:
+                SESSIONS[sid]["user_names"].append(new_order["user_name"])
+        created.append({"id": sid, "title": summary_title, "warnings": 0})
 
     return jsonify({"sessions": created}), 201
 
