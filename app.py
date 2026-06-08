@@ -290,7 +290,7 @@ def api_export():
         sheet_name = re.sub(r'[/\\[\]:*?]', '-', session["title"])[:31]
         ws = wb.create_sheet(title=sheet_name)
         ws.append(["项目", "数量", "序号"])
-        header_fill = openpyxl.styles.PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
+        header_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFD6E4F0")
         header_border = openpyxl.styles.Border(
             left=openpyxl.styles.Side(style="thin", color="999999"),
             right=openpyxl.styles.Side(style="thin", color="999999"),
@@ -329,7 +329,7 @@ def api_export():
         wrap_align = openpyxl.styles.Alignment(horizontal="center", vertical="center", wrap_text=True)
         thin = openpyxl.styles.Side(style="thin", color="999999")
         all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
-        gray_fill = openpyxl.styles.PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        gray_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFF2F2F2")
         col_c_width = ws.column_dimensions["C"].width
         chars_per_line = int(col_c_width)
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=3):
@@ -404,7 +404,7 @@ def api_export_detail():
         )
         # Row 2: 表头（蓝色背景 + 四边框线）
         ws.append(["序号", "部门", "姓名", "餐品名称", "酱汁", "金额", "就餐园区"])
-        header_fill = openpyxl.styles.PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
+        header_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFD6E4F0")
         header_border = openpyxl.styles.Border(
             left=openpyxl.styles.Side(style="thin", color="999999"),
             right=openpyxl.styles.Side(style="thin", color="999999"),
@@ -467,7 +467,7 @@ def api_export_detail():
                 elif r == last_row:
                     cell.alignment = left_indent if c in (1, 4) else (left_align if c in (6, 7) else center_align)
                 else:
-                    cell.alignment = left_align if c == 7 else center_align
+                    cell.alignment = center_align
         # 确保最左侧边框完整
         for r in range(1, ws.max_row + 1):
             ws.cell(row=r, column=1).border = all_border
@@ -611,19 +611,19 @@ def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauc
 
     dish = _match_dish(dish_cell)
     if not dish:
-        warnings.append({"type": "dish", "original": dish_cell, "matched": None, "user": user_name})
+        warnings.append({"type": "dish", "original": dish_cell, "matched": None, "user": user_name, "no": seq})
         return
     elif dish["name"] != dish_cell:
-        warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name})
+        warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name, "no": seq})
 
     sauce_id = _match_sauce(sauce_cell)
     if sauce_cell:
         if sauce_id:
             sauce_name = next(s["name"] for s in MENU["sauces"] if s["id"] == sauce_id)
             if sauce_name != sauce_cell:
-                warnings.append({"type": "sauce", "original": sauce_cell, "matched": sauce_name, "user": user_name})
+                warnings.append({"type": "sauce", "original": sauce_cell, "matched": sauce_name, "user": user_name, "no": seq})
         else:
-            warnings.append({"type": "sauce", "original": sauce_cell, "matched": None, "user": user_name})
+            warnings.append({"type": "sauce", "original": sauce_cell, "matched": None, "user": user_name, "no": seq})
     sauce_ids = [sauce_id] if sauce_id else []
 
     session = SESSIONS[sid]
@@ -828,7 +828,12 @@ def api_import_excel():
         all_titles = " ".join(item["title"] for item in created)
         company = "三德科技 " if ("麓谷" in all_titles or "长兴" in all_titles) else ""
         summary_title = prefix + " - " + company + "汇总"
-        sid, _ = _create_session(summary_title)
+        sid, summary_warnings = _create_session(summary_title)
+        # 合并各会话的导入匹配结果
+        for item in created:
+            src = SESSIONS.get(item["id"])
+            if src:
+                summary_warnings.extend(src.get("import_warnings", []))
         for o in all_orders:
             # 从原会话标题提取园区，写入订单
             orig_session = SESSIONS.get(o["session_id"])
@@ -839,7 +844,7 @@ def api_import_excel():
             SESSIONS[sid]["order_ids"].append(new_order["id"])
             if new_order["user_name"] not in SESSIONS[sid]["user_names"]:
                 SESSIONS[sid]["user_names"].append(new_order["user_name"])
-        created.append({"id": sid, "title": summary_title, "warnings": 0})
+        created.append({"id": sid, "title": summary_title, "warnings": len(summary_warnings)})
 
     return jsonify({"sessions": created}), 201
 
@@ -910,7 +915,12 @@ def _import_file(filepath: str):
         all_titles = " ".join(item["title"] for item in created)
         company = "三德科技 " if ("麓谷" in all_titles or "长兴" in all_titles) else ""
         summary_title = prefix + " - " + company + "汇总"
-        sid, _ = _create_session(summary_title)
+        sid, summary_warnings = _create_session(summary_title)
+        # 合并各会话的导入匹配结果
+        for item in created:
+            src = SESSIONS.get(item["id"])
+            if src:
+                summary_warnings.extend(src.get("import_warnings", []))
         for o in all_orders:
             orig_session = SESSIONS.get(o["session_id"])
             orig_title = orig_session["title"] if orig_session else ""

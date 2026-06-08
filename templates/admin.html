@@ -299,17 +299,22 @@
       const warnings = CURRENT_SESSION.import_warnings || [];
       const el = document.getElementById('warnings');
       if (!warnings.length) { el.innerHTML = ''; return; }
-      // 按 type+original 分组，收集人名
+      // 按 type+original 分组，收集序号+姓名
       const groups = {};
       warnings.forEach(w => {
         const key = w.type + '|' + w.original;
         if (!groups[key]) groups[key] = { ...w, users: [] };
-        if (w.user) groups[key].users.push(w.user);
+        if (w.user) groups[key].users.push({ name: w.user, no: w.no || 0 });
       });
-      const lines = Object.values(groups).map(g => {
+      const sorted = Object.values(groups).sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'dish' ? -1 : 1;
+        return 0;
+      });
+      const lines = sorted.map(g => {
         const typeLabel = g.type === 'dish' ? '菜品' : '酱料';
-        const users = g.users.length > 3 ? g.users.slice(0, 3).join('、') + '等' + g.users.length + '人' : g.users.join('、');
-        const userStr = users ? `<span style="color:var(--text-light);font-size:12px;">（${users}）</span>` : '';
+        const userStrs = g.users.map(u => u.no ? `${u.no}·${u.name}` : u.name);
+        const displayUsers = userStrs.length > 3 ? userStrs.slice(0, 3).join('、') + '等' + userStrs.length + '人' : userStrs.join('、');
+        const userStr = displayUsers ? `<span style="color:var(--text-light);font-size:12px;">（${displayUsers}）</span>` : '';
         if (g.matched) {
           return `<div class="w-item">${typeLabel}：${g.original}<span class="w-arrow">&gt;</span>${g.matched}${userStr}</div>`;
         } else {
