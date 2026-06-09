@@ -252,97 +252,110 @@ def api_export():
     wb.remove(wb.active)
 
     sauce_map = {s["id"]: s["name"] for s in MENU["sauces"]}
+    export_type = request.args.get("type", "")
 
-    # 汇总会话排最前
-    sorted_sessions = sorted(sessions.items(), key=lambda x: ("汇总" not in x[1]["title"], x[1]["title"]))
-    for sid, session in sorted_sessions:
+    # 汇总tab只导出汇总，园区tab只导出园区
+    if export_type == "summary":
+        sessions = {sid: s for sid, s in sessions.items() if s["title"].endswith("汇总")}
+    else:
+        sessions = {sid: s for sid, s in sessions.items() if not s["title"].endswith("汇总")}
+
+    def _write_sheet(ws, rows):
+        def _char_width(c):
+            return 2 if ord(c) > 127 else 1
+        def _val_width(val):
+            return sum(_char_width(c) for c in str(val or ""))
+
+        header_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFD6E4F0")
+        header_border = openpyxl.styles.Border(
+            left=openpyxl.styles.Side(style="thin", color="FF999999"),
+            right=openpyxl.styles.Side(style="thin", color="FF999999"),
+            top=openpyxl.styles.Side(style="thin", color="FF999999"),
+            bottom=openpyxl.styles.Side(style="thin", color="FF999999"),
+        )
+        center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
+        wrap_align = openpyxl.styles.Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin = openpyxl.styles.Side(style="thin", color="FF999999")
+        all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
+        gray_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFF2F2F2")
+
+        # 表头
+        ws.append(["项目", "数量", "序号"])
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = openpyxl.styles.Font(bold=True, color="FF000000")
+            cell.border = header_border
+            cell.alignment = center_align
+
+        # 数据行
+        total_count = 0
+        max_a, max_b, max_c = _val_width("项目"), _val_width("数量"), _val_width("序号")
+        for i, r in enumerate(rows):
+            nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
+            ws.append([r["name"], r["count"], nos])
+            row_idx = i + 2
+            total_count += r["count"]
+            max_a = max(max_a, _val_width(r["name"]))
+            max_b = max(max_b, _val_width(r["count"]))
+            max_c = max(max_c, _val_width(nos))
+            for cell in ws[row_idx]:
+                cell.alignment = wrap_align if cell.column == 3 else center_align
+                cell.border = all_border
+                if row_idx % 2 == 0:
+                    cell.fill = gray_fill
+
+        # 合计行
+        total_row = len(rows) + 2
+        ws.append(["合计", total_count, ""])
+        for cell in ws[total_row]:
+            cell.alignment = center_align
+            cell.border = all_border
+
+        # 列宽
+        ws.column_dimensions["A"].width = max_a + 4
+        ws.column_dimensions["B"].width = max_b + 7
+        ws.column_dimensions["C"].width = 40
+
+        # 行高
+        col_c_width = 40
+        for row_idx in range(1, total_row + 1):
+            c_val = str(ws.cell(row=row_idx, column=3).value or "")
+            char_len = _val_width(c_val)
+            lines = max(1, -(-char_len // col_c_width))
+            ws.row_dimensions[row_idx].height = max(22, lines * 18)
+
+    # 每个会话导出2个sheet：主食、酱汁
+    for sid, session in sessions.items():
         orders = [ORDERS[oid] for oid in session["order_ids"] if oid in ORDERS]
         if not orders:
             continue
 
-        # 聚合：与 admin 页面 renderItems 逻辑一致
-        map = {}
+        dish_map = {}
+        sauce_map_local = {}
 
-        def bump(key, name, tag, no):
-            if key not in map:
-                map[key] = {"name": name, "tag": tag, "count": 0, "user_nos": set()}
-            map[key]["count"] += 1
-            map[key]["user_nos"].add(no)
+        def bump(target, key, name, no):
+            if key not in target:
+                target[key] = {"name": name, "count": 0, "user_nos": set()}
+            target[key]["count"] += 1
+            target[key]["user_nos"].add(no)
 
         for o in orders:
             d = next((x for x in MENU["dishes"] if x["id"] == o["dish_id"]), {})
             display = d.get("name", "?") + (f"（{o['base']}）" if o.get("base") else "")
             no = o.get("seq", o["user_no"])
-            bump("dish:" + o["dish_id"] + ":" + (o.get("base") or ""), display, "主食", no)
+            bump(dish_map, "dish:" + o["dish_id"] + ":" + (o.get("base") or ""), display, no)
             for sid_s in o.get("sauce_ids", []):
-                bump("sauce:" + sid_s, sauce_map.get(sid_s, "?"), "酱料", no)
+                bump(sauce_map_local, "sauce:" + sid_s, sauce_map.get(sid_s, "?"), no)
 
-        dish_rows = sorted(
-            [r for r in map.values() if r["tag"] == "主食"],
-            key=lambda r: (-r["count"], r["name"]),
-        )
-        sauce_rows = sorted(
-            [r for r in map.values() if r["tag"] == "酱料"],
-            key=lambda r: (-r["count"], r["name"]),
-        )
+        dish_rows = sorted(dish_map.values(), key=lambda r: (-r["count"], r["name"]))
+        sauce_rows = sorted(sauce_map_local.values(), key=lambda r: (-r["count"], r["name"]))
 
         # Excel sheet 名最多 31 字，不能含 / \ [ ] : *
-        sheet_name = re.sub(r'[/\\[\]:*?]', '-', session["title"])[:31]
-        ws = wb.create_sheet(title=sheet_name)
-        ws.append(["项目", "数量", "序号"])
-        header_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFD6E4F0")
-        header_border = openpyxl.styles.Border(
-            left=openpyxl.styles.Side(style="thin", color="999999"),
-            right=openpyxl.styles.Side(style="thin", color="999999"),
-            top=openpyxl.styles.Side(style="thin", color="999999"),
-            bottom=openpyxl.styles.Side(style="thin", color="999999"),
-        )
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = openpyxl.styles.Font(bold=True)
-            cell.border = header_border
-        for r in dish_rows:
-            nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
-            ws.append([r["name"], r["count"], nos])
-        for r in sauce_rows:
-            nos = ", ".join(str(n) for n in sorted(r["user_nos"]))
-            ws.append([r["name"], r["count"], nos])
-
-        # 合计行
-        total_count = sum(r["count"] for r in dish_rows) + sum(r["count"] for r in sauce_rows)
-        ws.append(["合计", total_count, ""])
-
-        # 动态列宽：中文字符占2宽度，英文/数字占1宽度
-        def _char_width(c):
-            return 2 if ord(c) > 127 else 1
-        def _val_width(val):
-            return sum(_char_width(c) for c in str(val or ""))
-        max_a = max(_val_width(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1))
-        max_b = max(_val_width(ws.cell(row=r, column=2).value) for r in range(1, ws.max_row + 1))
-        max_c = max(_val_width(ws.cell(row=r, column=3).value) for r in range(1, ws.max_row + 1))
-        ws.column_dimensions["A"].width = max_a + 4
-        ws.column_dimensions["B"].width = max_b + 7
-        ws.column_dimensions["C"].width = 40
-
-        # 行高 + 居中 + 边框 + 隔行灰色
-        center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
-        wrap_align = openpyxl.styles.Alignment(horizontal="center", vertical="center", wrap_text=True)
-        thin = openpyxl.styles.Side(style="thin", color="999999")
-        all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
-        gray_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFF2F2F2")
-        col_c_width = ws.column_dimensions["C"].width
-        chars_per_line = int(col_c_width)
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=3):
-            row_idx = row[0].row
-            c_val = str(ws.cell(row=row_idx, column=3).value or "")
-            char_len = _val_width(c_val)
-            lines = max(1, -(-char_len // chars_per_line))
-            ws.row_dimensions[row_idx].height = max(22, lines * 18)
-            for cell in row:
-                cell.alignment = wrap_align if cell.column == 3 else center_align
-                cell.border = all_border
-                if row_idx > 1 and row_idx % 2 == 0:
-                    cell.fill = gray_fill
+        short_title = re.sub(r'[/\\[\]:*?]', '-', session["title"])[:20]
+        if dish_rows:
+            _write_sheet(wb.create_sheet(title=f"主食-{short_title}"), dish_rows)
+        if sauce_rows:
+            _write_sheet(wb.create_sheet(title=f"酱汁-{short_title}"), sauce_rows)
 
     buf = BytesIO()
     wb.save(buf)
@@ -395,25 +408,25 @@ def api_export_detail():
         # Row 1: 标题（合并单元格）
         ws.append([excel_title, None, None, None, None, None, None])
         ws.merge_cells("A1:G1")
-        ws["A1"].font = openpyxl.styles.Font(bold=True, size=14)
+        ws["A1"].font = openpyxl.styles.Font(bold=True, size=14, color="FF000000")
         ws["A1"].border = openpyxl.styles.Border(
-            left=openpyxl.styles.Side(style="thin", color="999999"),
-            right=openpyxl.styles.Side(style="thin", color="999999"),
-            top=openpyxl.styles.Side(style="thin", color="999999"),
-            bottom=openpyxl.styles.Side(style="thin", color="999999"),
+            left=openpyxl.styles.Side(style="thin", color="FF999999"),
+            right=openpyxl.styles.Side(style="thin", color="FF999999"),
+            top=openpyxl.styles.Side(style="thin", color="FF999999"),
+            bottom=openpyxl.styles.Side(style="thin", color="FF999999"),
         )
         # Row 2: 表头（蓝色背景 + 四边框线）
         ws.append(["序号", "部门", "姓名", "餐品名称", "酱汁", "金额", "就餐园区"])
         header_fill = openpyxl.styles.PatternFill(patternType="solid", fgColor="FFD6E4F0")
         header_border = openpyxl.styles.Border(
-            left=openpyxl.styles.Side(style="thin", color="999999"),
-            right=openpyxl.styles.Side(style="thin", color="999999"),
-            top=openpyxl.styles.Side(style="thin", color="999999"),
-            bottom=openpyxl.styles.Side(style="thin", color="999999"),
+            left=openpyxl.styles.Side(style="thin", color="FF999999"),
+            right=openpyxl.styles.Side(style="thin", color="FF999999"),
+            top=openpyxl.styles.Side(style="thin", color="FF999999"),
+            bottom=openpyxl.styles.Side(style="thin", color="FF999999"),
         )
         for cell in ws[2]:
             cell.fill = header_fill
-            cell.font = openpyxl.styles.Font(bold=True)
+            cell.font = openpyxl.styles.Font(bold=True, color="FF000000")
             cell.border = header_border
 
         # 数据行
@@ -451,7 +464,7 @@ def api_export_detail():
         center_align = openpyxl.styles.Alignment(horizontal="center", vertical="center")
         left_align = openpyxl.styles.Alignment(horizontal="left", vertical="center")
         left_indent = openpyxl.styles.Alignment(horizontal="left", vertical="center", indent=2)
-        thin = openpyxl.styles.Side(style="thin", color="999999")
+        thin = openpyxl.styles.Side(style="thin", color="FF999999")
         all_border = openpyxl.styles.Border(left=thin, right=thin, top=thin, bottom=thin)
         left_only = openpyxl.styles.Border(left=thin)
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):

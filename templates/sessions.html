@@ -301,7 +301,10 @@
 
     document.getElementById('btnExportSummary').addEventListener('click', async () => {
       const ids = getSelectedIds();
-      const qs = ids.length ? '?ids=' + ids.join(',') : '';
+      const params = new URLSearchParams();
+      if (ids.length) params.set('ids', ids.join(','));
+      if (currentTab === 'summary') params.set('type', 'summary');
+      const qs = params.toString() ? '?' + params.toString() : '';
       await downloadFile('/api/export' + qs, '统计汇总.xlsx');
     });
 
