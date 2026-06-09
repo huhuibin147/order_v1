@@ -619,7 +619,11 @@ def _create_session(title: str) -> tuple[str, list]:
 
 def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauce_cell: str, base: str, seq: int = 0, dept: str = ""):
     """解析并导入一条订单"""
-    if not user_name or not dish_cell:
+    if not user_name:
+        return
+
+    if not dish_cell:
+        warnings.append({"type": "dish", "original": "（空）", "matched": None, "user": user_name, "no": seq})
         return
 
     dish = _match_dish(dish_cell)
@@ -630,13 +634,12 @@ def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauc
         warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name, "no": seq})
 
     sauce_id = _match_sauce(sauce_cell)
-    if sauce_cell:
-        if sauce_id:
-            sauce_name = next(s["name"] for s in MENU["sauces"] if s["id"] == sauce_id)
-            if sauce_name != sauce_cell:
-                warnings.append({"type": "sauce", "original": sauce_cell, "matched": sauce_name, "user": user_name, "no": seq})
-        else:
-            warnings.append({"type": "sauce", "original": sauce_cell, "matched": None, "user": user_name, "no": seq})
+    if sauce_id:
+        sauce_name = next(s["name"] for s in MENU["sauces"] if s["id"] == sauce_id)
+        if sauce_name != sauce_cell:
+            warnings.append({"type": "sauce", "original": sauce_cell or "（空）", "matched": sauce_name, "user": user_name, "no": seq})
+    else:
+        warnings.append({"type": "sauce", "original": sauce_cell or "（空）", "matched": None, "user": user_name, "no": seq})
     sauce_ids = [sauce_id] if sauce_id else []
 
     session = SESSIONS[sid]
