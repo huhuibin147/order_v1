@@ -520,28 +520,50 @@ def _char_overlap(a: str, b: str) -> float:
     return overlap / max(len(a), len(b))
 
 
+# 同义词组：组内任意词可互换
+_DISH_SYNONYM_GROUPS = [
+    ["杂粮饭", "杂粮碗", "谷物碗", "谷物饭"],
+    ["杂粮", "谷物"],
+]
+
+
+def _dish_variants(name: str) -> list[str]:
+    """生成菜品名的所有同义词变体"""
+    variants = {name}
+    for group in _DISH_SYNONYM_GROUPS:
+        for word in group:
+            if word in name:
+                for alt in group:
+                    if alt != word:
+                        variants.add(name.replace(word, alt))
+    return list(variants)
+
+
 def _match_dish(name: str) -> dict | None:
     """模糊匹配菜品名称，返回 menu 中的 dish dict"""
-    # 1. 精确匹配
+    variants = _dish_variants(name)
+    # 1. 精确匹配（原名或变体）
     for d in MENU["dishes"]:
-        if d["name"] == name:
+        if d["name"] == name or d["name"] in variants:
             return d
-    # 2. 子串匹配
+    # 2. 子串匹配（所有变体都尝试）
     for d in MENU["dishes"]:
-        if d["name"] in name or name in d["name"]:
-            return d
+        for v in variants:
+            if d["name"] in v or v in d["name"]:
+                return d
     # 3. 去掉常见品类后缀再匹配
     suffixes = ["碗", "面", "饭", "沙拉", "意面"]
     for d in MENU["dishes"]:
         for suf in suffixes:
-            if name.endswith(suf) and d["name"] == name[: -len(suf)]:
-                return d
-            if d["name"].endswith(suf) and name == d["name"][: -len(suf)]:
-                return d
+            for v in variants:
+                if v.endswith(suf) and d["name"] == v[: -len(suf)]:
+                    return d
+                if d["name"].endswith(suf) and v == d["name"][: -len(suf)]:
+                    return d
     # 4. 字符重叠兜底
     best, best_score = None, 0
     for d in MENU["dishes"]:
-        score = _char_overlap(name, d["name"])
+        score = max(_char_overlap(v, d["name"]) for v in variants)
         if score > best_score:
             best_score = score
             best = d
@@ -782,17 +804,21 @@ def api_import_excel():
         if filename.endswith(".xls"):
             wb = xlrd.open_workbook(file_contents=file.read())
             sheets = []
-            for name in wb.sheet_names():
-                ws = wb.sheet_by_name(name)
+            for i, name in enumerate(wb.sheet_names()):
+                ws = wb.sheet_by_index(i)
+                if ws.visibility != 0:  # 跳过隐藏sheet
+                    continue
                 rows = []
-                for i in range(ws.nrows):
-                    rows.append([ws.cell_value(i, j) for j in range(ws.ncols)])
+                for r in range(ws.nrows):
+                    rows.append([ws.cell_value(r, j) for j in range(ws.ncols)])
                 sheets.append((name, rows))
         else:
             wb = openpyxl.load_workbook(file, data_only=True)
             sheets = []
             for name in wb.sheetnames:
                 ws = wb[name]
+                if ws.sheet_state != 'visible':  # 跳过隐藏sheet
+                    continue
                 sheets.append((name, list(ws.iter_rows(min_row=1, values_only=True))))
     except Exception:
         return jsonify({"error": "无法解析 Excel 文件"}), 400
@@ -877,17 +903,21 @@ def _import_file(filepath: str):
         if filename.endswith(".xls"):
             wb = xlrd.open_workbook(file_contents=f.read())
             sheets = []
-            for name in wb.sheet_names():
-                ws = wb.sheet_by_name(name)
+            for i, name in enumerate(wb.sheet_names()):
+                ws = wb.sheet_by_index(i)
+                if ws.visibility != 0:  # 跳过隐藏sheet
+                    continue
                 rows = []
-                for i in range(ws.nrows):
-                    rows.append([ws.cell_value(i, j) for j in range(ws.ncols)])
+                for r in range(ws.nrows):
+                    rows.append([ws.cell_value(r, j) for j in range(ws.ncols)])
                 sheets.append((name, rows))
         else:
             wb = openpyxl.load_workbook(filepath, data_only=True)
             sheets = []
             for name in wb.sheetnames:
                 ws = wb[name]
+                if ws.sheet_state != 'visible':  # 跳过隐藏sheet
+                    continue
                 sheets.append((name, list(ws.iter_rows(min_row=1, values_only=True))))
 
     candidates = []

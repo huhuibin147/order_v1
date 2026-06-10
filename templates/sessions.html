@@ -133,6 +133,24 @@
       background: var(--primary);
       color: #fff;
     }
+    .toast {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,.75);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 999;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .toast.show {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -160,6 +178,7 @@
       <div class="tab" data-tab="area">园区</div>
     </div>
     <div id="content">加载中...</div>
+    <div class="toast" id="toast"></div>
   </div>
 
   <script>
@@ -167,6 +186,19 @@
     let selectMode = false;
     let currentTab = 'summary';
     let allSessions = [];
+
+    function showToast(msg, duration = 1500) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), duration);
+    }
+
+    function enterSelectMode() {
+      selectMode = true;
+      document.body.classList.add('select-mode');
+      document.getElementById('btnSelect').textContent = '取消';
+    }
 
     function getSelectedIds() {
       return [...document.querySelectorAll('.cb:checked')].map(cb => cb.dataset.sid);
@@ -301,17 +333,25 @@
 
     document.getElementById('btnExportSummary').addEventListener('click', async () => {
       const ids = getSelectedIds();
+      if (!ids.length) {
+        showToast('请先选择订单');
+        enterSelectMode();
+        return;
+      }
       const params = new URLSearchParams();
-      if (ids.length) params.set('ids', ids.join(','));
+      params.set('ids', ids.join(','));
       if (currentTab === 'summary') params.set('type', 'summary');
-      const qs = params.toString() ? '?' + params.toString() : '';
-      await downloadFile('/api/export' + qs, '统计汇总.xlsx');
+      await downloadFile('/api/export?' + params.toString(), '统计汇总.xlsx');
     });
 
     document.getElementById('btnExportDetail').addEventListener('click', async () => {
       const ids = getSelectedIds();
-      const qs = ids.length ? '?ids=' + ids.join(',') : '';
-      await downloadFile('/api/export/detail' + qs, '明细统计.xlsx');
+      if (!ids.length) {
+        showToast('请先选择订单');
+        enterSelectMode();
+        return;
+      }
+      await downloadFile('/api/export/detail?ids=' + ids.join(','), '明细统计.xlsx');
     });
   </script>
 </body>
