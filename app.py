@@ -526,10 +526,20 @@ _DISH_SYNONYM_GROUPS = [
     ["杂粮", "谷物"],
 ]
 
+# 简称 -> 完整菜品名
+_DISH_ABBREVIATIONS = {
+    "藤椒三明治": "藤椒鸡腿肉全麦三明治",
+    "黑椒三明治": "黑椒鸡胸肉全麦三明治",
+}
+
 
 def _dish_variants(name: str) -> list[str]:
     """生成菜品名的所有同义词变体"""
     variants = {name}
+    # 应用简称映射
+    if name in _DISH_ABBREVIATIONS:
+        variants.add(_DISH_ABBREVIATIONS[name])
+    # 应用同义词组
     for group in _DISH_SYNONYM_GROUPS:
         for word in group:
             if word in name:
@@ -546,13 +556,51 @@ def _match_dish(name: str) -> dict | None:
     for d in MENU["dishes"]:
         if d["name"] == name or d["name"] in variants:
             return d
-    # 2. 子串匹配（所有变体都尝试）
+    # 2. 品类+关键词匹配（处理简称情况）
+    # 先按品类筛选，再用关键词区分
+    categories = ["三明治", "双拼碗", "谷物碗", "沙拉", "意面", "荞麦面"]
+    for cat in categories:
+        if cat in name:
+            # 在该品类内匹配
+            cat_dishes = [d for d in MENU["dishes"] if cat in d["name"]]
+            if len(cat_dishes) == 1:
+                return cat_dishes[0]
+            # 多个候选时，用关键词区分
+            keywords = ["藤椒", "黑椒", "鸡腿肉", "鸡胸肉", "牛肉", "虾", "牛排", "大虾", "烤肠", "金枪鱼", "巴沙鱼"]
+            input_kws = [kw for kw in keywords if kw in name]
+            if input_kws:
+                for d in cat_dishes:
+                    if any(kw in d["name"] for kw in input_kws):
+                        return d
+            # 关键词没区分出来，返回第一个
+            if cat_dishes:
+                return cat_dishes[0]
+    # 3. 关键词匹配（无品类关键词时）
+    keywords = ["藤椒", "黑椒", "鸡腿肉", "鸡胸肉"]
+    input_kws = [kw for kw in keywords if kw in name]
+    if input_kws:
+        keyword_matches = []
+        for d in MENU["dishes"]:
+            if any(kw in d["name"] for kw in input_kws):
+                keyword_matches.append(d)
+        if len(keyword_matches) == 1:
+            return keyword_matches[0]
+        if len(keyword_matches) > 1:
+            keyword_matches.sort(
+                key=lambda d: sum(1 for kw in input_kws if kw in d["name"]),
+                reverse=True,
+            )
+            best_count = sum(1 for kw in input_kws if kw in keyword_matches[0]["name"])
+            top = [d for d in keyword_matches if sum(1 for kw in input_kws if kw in d["name"]) == best_count]
+            if len(top) == 1:
+                return top[0]
+    # 4. 子串匹配（所有变体都尝试）
     for d in MENU["dishes"]:
         for v in variants:
             if d["name"] in v or v in d["name"]:
                 return d
-    # 3. 去掉常见品类后缀再匹配
-    suffixes = ["碗", "面", "饭", "沙拉", "意面"]
+    # 4. 去掉常见品类后缀再匹配
+    suffixes = ["碗", "面", "饭", "沙拉", "意面", "三明治"]
     for d in MENU["dishes"]:
         for suf in suffixes:
             for v in variants:
@@ -617,11 +665,29 @@ def _match_sauce(name: str) -> str | None:
 
 
 def _parse_dish_base(cell: str) -> tuple[str, str]:
-    """从 '鸡胸肉牛肉双拼碗（荞麦面）' 解析出 (dish_name, base)"""
+    """从 '鸡胸肉牛肉双拼碗（荞麦面）' 或 '黑椒鸡胸肉全麦三明治+紫薯酸奶杯' 解析出 (dish_name, base)"""
     m = re.match(r'^(.+?)[\(（](.+?)[\)）]$', cell.strip())
     if m:
         return m.group(1).strip(), m.group(2).strip()
+    # 尝试 + 分隔（如三明治套餐）
+    if '+' in cell:
+        parts = cell.split('+', 1)
+        return parts[0].strip(), parts[1].strip()
     return cell.strip(), ""
+
+
+def _normalize_base(base: str, base_options: list) -> str:
+    """将 base 模糊匹配到 base_options 中的标准值"""
+    if not base or not base_options:
+        return base
+    # 精确匹配
+    if base in base_options:
+        return base
+    # 子串匹配：base 是某个 option 的子串，或某个 option 是 base 的子串
+    for opt in base_options:
+        if base in opt or opt in base:
+            return opt
+    return base
 
 
 def _create_session(title: str) -> tuple[str, list]:
@@ -655,13 +721,23 @@ def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauc
     elif dish["name"] != dish_cell:
         warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name, "no": seq})
 
+    # 标准化 base（处理用户填写不完整的情况，如"紫薯酸奶" -> "紫薯酸奶杯"）
+    base_options = dish.get("base_options", [])
+    if base and base_options:
+        original_base = base
+        base = _normalize_base(base, base_options)
+        if base != original_base:
+            warnings.append({"type": "base", "original": original_base, "matched": base, "user": user_name, "no": seq})
+
     sauce_id = _match_sauce(sauce_cell)
     if sauce_id:
         sauce_name = next(s["name"] for s in MENU["sauces"] if s["id"] == sauce_id)
         if sauce_name != sauce_cell:
             warnings.append({"type": "sauce", "original": sauce_cell or "（空）", "matched": sauce_name, "user": user_name, "no": seq})
     else:
-        warnings.append({"type": "sauce", "original": sauce_cell or "（空）", "matched": None, "user": user_name, "no": seq})
+        # 如果菜品本身没有酱料选项（sauce_ids 为空），且酱汁也为空，不生成警告
+        if dish.get("sauce_ids") or sauce_cell:
+            warnings.append({"type": "sauce", "original": sauce_cell or "（空）", "matched": None, "user": user_name, "no": seq})
     sauce_ids = [sauce_id] if sauce_id else []
 
     session = SESSIONS[sid]

@@ -32,6 +32,9 @@
 
     { "id": "d_pepper_chicken_grain","name": "黑椒鸡胸谷物碗",       "category": "谷物碗", "price": 16, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
     { "id": "d_chicken_buck",        "name": "香薰鸡肉荞麦面",       "category": "荞麦面", "price": 16, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
-    { "id": "d_rattan_leg_grain",    "name": "藤椒鸡腿排谷物碗",     "category": "谷物碗", "price": 16, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] }
+    { "id": "d_rattan_leg_grain",    "name": "藤椒鸡腿排谷物碗",     "category": "谷物碗", "price": 16, "description": "", "sauce_ids": ["s_beef_chili","s_garlic_chili","s_sweet_chili","s_black_pepper","s_vinaigrette","s_sesame","s_lime","s_caesar"], "sauce_mode": "single_required", "addon_ids": [] },
+
+    { "id": "d_black_pepper_chicken_sand", "name": "黑椒鸡胸肉全麦三明治", "category": "三明治套餐", "price": 17, "description": "", "base_options": ["紫薯酸奶杯", "芋泥酸奶杯"], "sauce_ids": [], "addon_ids": [] },
+    { "id": "d_rattan_chicken_sand",        "name": "藤椒鸡腿肉全麦三明治", "category": "三明治套餐", "price": 17, "description": "", "base_options": ["紫薯酸奶杯", "芋泥酸奶杯"], "sauce_ids": [], "addon_ids": [] }
   ]
 }

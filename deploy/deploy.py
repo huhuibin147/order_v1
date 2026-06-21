@@ -9,7 +9,7 @@ import paramiko
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 
-with open(os.path.join(SCRIPT_DIR, "config.yaml")) as f:
+with open(os.path.join(SCRIPT_DIR, "config.yaml"), encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
 HOST = cfg["host"]
@@ -28,6 +28,9 @@ def should_exclude(path):
     return path.endswith(".pyc")
 
 
+TEXT_EXTS = {".py", ".html", ".css", ".js", ".json", ".sh", ".yaml", ".yml", ".txt", ".md"}
+
+
 def create_tar():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -38,7 +41,17 @@ def create_tar():
                 fpath = os.path.join(rel_root, f)
                 if should_exclude(fpath):
                     continue
-                tar.add(os.path.join(root, f), arcname=fpath)
+                src = os.path.join(root, f)
+                _, ext = os.path.splitext(f)
+                if ext.lower() in TEXT_EXTS:
+                    # 转换 Windows 换行为 Unix 换行
+                    with open(src, "rb") as fh:
+                        data = fh.read().replace(b"\r\n", b"\n")
+                    info = tar.gettarinfo(src, arcname=fpath)
+                    info.size = len(data)
+                    tar.addfile(info, io.BytesIO(data))
+                else:
+                    tar.add(src, arcname=fpath)
     buf.seek(0)
     return buf
 
