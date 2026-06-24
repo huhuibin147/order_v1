@@ -556,8 +556,8 @@ def _match_dish(name: str) -> dict | None:
     for d in MENU["dishes"]:
         if d["name"] == name or d["name"] in variants:
             return d
-    # 2. 品类+关键词匹配（处理简称情况）
-    # 先按品类筛选，再用关键词区分
+    # 2. 品类匹配（处理简称情况）
+    # 先按品类筛选，再用字符重叠率选最佳
     categories = ["三明治", "双拼碗", "谷物碗", "沙拉", "意面", "荞麦面"]
     for cat in categories:
         if cat in name:
@@ -565,36 +565,28 @@ def _match_dish(name: str) -> dict | None:
             cat_dishes = [d for d in MENU["dishes"] if cat in d["name"]]
             if len(cat_dishes) == 1:
                 return cat_dishes[0]
-            # 多个候选时，用关键词区分
-            keywords = ["藤椒", "黑椒", "鸡腿肉", "鸡胸肉", "牛肉", "虾", "牛排", "大虾", "烤肠", "金枪鱼", "巴沙鱼"]
-            input_kws = [kw for kw in keywords if kw in name]
-            if input_kws:
-                for d in cat_dishes:
-                    if any(kw in d["name"] for kw in input_kws):
-                        return d
-            # 关键词没区分出来，返回第一个
-            if cat_dishes:
-                return cat_dishes[0]
-    # 3. 关键词匹配（无品类关键词时）
-    keywords = ["藤椒", "黑椒", "鸡腿肉", "鸡胸肉"]
-    input_kws = [kw for kw in keywords if kw in name]
-    if input_kws:
-        keyword_matches = []
-        for d in MENU["dishes"]:
-            if any(kw in d["name"] for kw in input_kws):
-                keyword_matches.append(d)
-        if len(keyword_matches) == 1:
-            return keyword_matches[0]
-        if len(keyword_matches) > 1:
-            keyword_matches.sort(
-                key=lambda d: sum(1 for kw in input_kws if kw in d["name"]),
-                reverse=True,
-            )
-            best_count = sum(1 for kw in input_kws if kw in keyword_matches[0]["name"])
-            top = [d for d in keyword_matches if sum(1 for kw in input_kws if kw in d["name"]) == best_count]
-            if len(top) == 1:
-                return top[0]
-    # 4. 子串匹配（所有变体都尝试）
+            # 三明治品类用关键词区分
+            if cat == "三明治":
+                keywords = ["藤椒", "黑椒", "鸡腿肉", "鸡胸肉"]
+                input_kws = [kw for kw in keywords if kw in name]
+                if input_kws:
+                    scored = []
+                    for d in cat_dishes:
+                        match_count = sum(1 for kw in input_kws if kw in d["name"])
+                        scored.append((match_count, d))
+                    scored.sort(key=lambda x: x[0], reverse=True)
+                    if scored[0][0] > 0:
+                        return scored[0][1]
+            # 用字符重叠率选最佳
+            best, best_score = None, 0
+            for d in cat_dishes:
+                score = max(_char_overlap(v, d["name"]) for v in variants)
+                if score > best_score:
+                    best_score = score
+                    best = d
+            if best:
+                return best
+    # 3. 子串匹配（所有变体都尝试）
     for d in MENU["dishes"]:
         for v in variants:
             if d["name"] in v or v in d["name"]:
@@ -666,14 +658,23 @@ def _match_sauce(name: str) -> str | None:
 
 def _parse_dish_base(cell: str) -> tuple[str, str]:
     """从 '鸡胸肉牛肉双拼碗（荞麦面）' 或 '黑椒鸡胸肉全麦三明治+紫薯酸奶杯' 解析出 (dish_name, base)"""
-    m = re.match(r'^(.+?)[\(（](.+?)[\)）]$', cell.strip())
+    cell = cell.strip()
+    # 收集所有 base_options 用于判断
+    all_base_options = []
+    for d in MENU["dishes"]:
+        all_base_options.extend(d.get("base_options", []))
+    # 正则：括号格式 或 分隔符格式（+、加）
+    m = re.match(r'^(.+?)[\(（](.+?)[\)）]$', cell)
     if m:
         return m.group(1).strip(), m.group(2).strip()
-    # 尝试 + 分隔（如三明治套餐）
-    if '+' in cell:
-        parts = cell.split('+', 1)
-        return parts[0].strip(), parts[1].strip()
-    return cell.strip(), ""
+    m = re.match(r'^(.+?)[\+加](.+)$', cell)
+    if m:
+        part_a, part_b = m.group(1).strip(), m.group(2).strip()
+        # 判断哪边是 base
+        if part_a in all_base_options:
+            return part_b, part_a
+        return part_a, part_b
+    return cell, ""
 
 
 def _normalize_base(base: str, base_options: list) -> str:
@@ -721,7 +722,14 @@ def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauc
     elif dish["name"] != dish_cell:
         warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name, "no": seq})
 
-    # 标准化 base（处理用户填写不完整的情况，如"紫薯酸奶" -> "紫薯酸奶杯"）
+    # 检查 base 是否实际是酱料（如"紫薯酸奶杯"被解析为 base）
+    if base and not sauce_cell:
+        sauce_id_from_base = _match_sauce(base)
+        if sauce_id_from_base:
+            sauce_cell = base
+            base = ""
+
+    # 标准化 base（处理用户填写不完整的情况，如"杂粮" -> "杂粮饭"）
     base_options = dish.get("base_options", [])
     if base and base_options:
         original_base = base
@@ -834,10 +842,13 @@ def _import_v2_sheet(sheet_name: str, rows: list) -> list[dict]:
         for row in area_rows:
             user_name = str(row[2] or "").strip()
             dish_cell = str(row[3] or "").strip()
-            base = str(row[4] or "").strip() if len(row) > 4 else ""
+            base_cell = str(row[4] or "").strip() if len(row) > 4 else ""
             sauce_cell = str(row[5] or "").strip() if len(row) > 5 else ""
             dept = str(row[1] or "").strip()
-            _import_order(sid, warnings, user_name, dish_cell, sauce_cell, base, _parse_seq(row[0]) or 0, dept)
+            dish_name, parsed_base = _parse_dish_base(dish_cell)
+            # 优先使用解析出的base，否则使用单独列的base
+            base = parsed_base or base_cell
+            _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, _parse_seq(row[0]) or 0, dept)
 
         results.append({"id": sid, "title": title, "warnings": len(warnings)})
 
