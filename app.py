@@ -656,25 +656,52 @@ def _match_sauce(name: str) -> str | None:
     return None
 
 
-def _parse_dish_base(cell: str) -> tuple[str, str]:
-    """从 '鸡胸肉牛肉双拼碗（荞麦面）' 或 '黑椒鸡胸肉全麦三明治+紫薯酸奶杯' 解析出 (dish_name, base)"""
+def _parse_dish_base(cell: str) -> tuple[str, str, str]:
+    """解析菜品单元格，返回 (dish_name, base, sauce)"""
     cell = cell.strip()
-    # 收集所有 base_options 用于判断
+    # 收集所有 base_options 和 sauce 名称
     all_base_options = []
+    all_sauce_names = [s["name"] for s in MENU["sauces"]]
     for d in MENU["dishes"]:
         all_base_options.extend(d.get("base_options", []))
-    # 正则：括号格式 或 分隔符格式（+、加）
+    # 1. 括号格式（只在内容是有效的 base 或酱料时才解析）
     m = re.match(r'^(.+?)[\(（](.+?)[\)）]$', cell)
     if m:
-        return m.group(1).strip(), m.group(2).strip()
-    m = re.match(r'^(.+?)[\+加](.+)$', cell)
+        part_in_bracket = m.group(2).strip()
+        if part_in_bracket in all_base_options:
+            return m.group(1).strip(), part_in_bracket, ""
+        if part_in_bracket in all_sauce_names:
+            return m.group(1).strip(), "", part_in_bracket
+    # 2. 检查是否包含酱料名称（如酸奶杯），直接提取
+    for sauce_name in all_sauce_names:
+        if sauce_name in cell:
+            dish_part = cell.replace(sauce_name, "").strip()
+            # 清理分隔符
+            dish_part = re.sub(r'[\+➕加]+$', '', dish_part).strip()
+            # 允许 dish_part 为空（单元格只有酱料名称）
+            return dish_part, "", sauce_name
+    # 3. 分隔符格式（+、➕、加）
+    # 通用名称列表，这些不应该被当作 base
+    generic_names = ["三明治", "意面", "荞麦面", "杂粮饭", "谷物碗", "沙拉", "双拼碗"]
+    m = re.match(r'^(.+?)[\+➕加](.+)$', cell)
     if m:
         part_a, part_b = m.group(1).strip(), m.group(2).strip()
-        # 判断哪边是 base
+        # 检查是否是有效的 base 或酱料
         if part_a in all_base_options:
-            return part_b, part_a
-        return part_a, part_b
-    return cell, ""
+            return part_b, part_a, ""
+        if part_b in all_base_options:
+            return part_a, part_b, ""
+        if part_a in all_sauce_names:
+            return part_b, "", part_a
+        if part_b in all_sauce_names:
+            return part_a, "", part_b
+        # 如果分隔出来的部分是通用名称，保留为菜品名
+        if part_b in generic_names:
+            return part_a + part_b, "", ""
+        if part_a in generic_names:
+            return part_a + part_b, "", ""
+        return part_a, part_b, ""
+    return cell, "", ""
 
 
 def _normalize_base(base: str, base_options: list) -> str:
@@ -723,11 +750,12 @@ def _import_order(sid: str, warnings: list, user_name: str, dish_cell: str, sauc
         warnings.append({"type": "dish", "original": dish_cell, "matched": dish["name"], "user": user_name, "no": seq})
 
     # 检查 base 是否实际是酱料（如"紫薯酸奶杯"被解析为 base）
-    if base and not sauce_cell:
+    if base:
         sauce_id_from_base = _match_sauce(base)
         if sauce_id_from_base:
-            sauce_cell = base
-            base = ""
+            if not sauce_cell:
+                sauce_cell = base
+            base = ""  # 三明治类没有 base
 
     # 标准化 base（处理用户填写不完整的情况，如"杂粮" -> "杂粮饭"）
     base_options = dish.get("base_options", [])
@@ -811,8 +839,11 @@ def _import_v1_sheet(sheet_name: str, rows: list) -> dict:
         if not user_name or not dish_cell:
             continue
         dept = str(row[1] or "").strip()
-        dish_name, base = _parse_dish_base(dish_cell)
-        _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, seq, dept)
+        dish_name, parsed_base, parsed_sauce = _parse_dish_base(dish_cell)
+        # 优先使用解析出的值
+        final_base = parsed_base or ""
+        final_sauce = parsed_sauce or sauce_cell
+        _import_order(sid, warnings, user_name, dish_name, final_sauce, final_base, seq, dept)
 
     return {"id": sid, "title": title, "warnings": len(warnings)}
 
@@ -845,10 +876,17 @@ def _import_v2_sheet(sheet_name: str, rows: list) -> list[dict]:
             base_cell = str(row[4] or "").strip() if len(row) > 4 else ""
             sauce_cell = str(row[5] or "").strip() if len(row) > 5 else ""
             dept = str(row[1] or "").strip()
-            dish_name, parsed_base = _parse_dish_base(dish_cell)
-            # 优先使用解析出的base，否则使用单独列的base
-            base = parsed_base or base_cell
-            _import_order(sid, warnings, user_name, dish_name, sauce_cell, base, _parse_seq(row[0]) or 0, dept)
+            dish_name, parsed_base, parsed_sauce = _parse_dish_base(dish_cell)
+            # 检查 base_cell 是否是酱料（如"芋泥酸奶杯"被放在主食列）
+            if base_cell and not parsed_sauce:
+                sauce_id_from_base = _match_sauce(base_cell)
+                if sauce_id_from_base:
+                    parsed_sauce = base_cell
+                    base_cell = ""
+            # 优先使用解析出的值
+            final_base = parsed_base or base_cell
+            final_sauce = parsed_sauce or sauce_cell
+            _import_order(sid, warnings, user_name, dish_name, final_sauce, final_base, _parse_seq(row[0]) or 0, dept)
 
         results.append({"id": sid, "title": title, "warnings": len(warnings)})
 
